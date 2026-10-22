@@ -1554,6 +1554,32 @@ impl ZsuiAppKitDrawView {
     }
 
     fn dispatch_pointer_down_event(&self, event: &NSEvent, button: crate::ZsPointerButton) {
+        #[cfg(feature = "window-chrome")]
+        if button == crate::ZsPointerButton::Primary
+            && self
+                .ivars()
+                .runtime
+                .borrow()
+                .window_drag_region_at(self.pointer_point(event))
+        {
+            if let Some(window) = self.window() {
+                if event.clickCount() == 2 {
+                    window.zoom(None);
+                } else {
+                    window.performWindowDragWithEvent(event);
+                }
+                let report =
+                    self.ivars()
+                        .runtime
+                        .borrow_mut()
+                        .dispatch_window_state(crate::ZsWindowState {
+                            maximized: window.isZoomed(),
+                            placement: None,
+                        });
+                self.apply_input_report(report);
+                return;
+            }
+        }
         let report = self
             .ivars()
             .runtime
@@ -1605,6 +1631,36 @@ impl ZsuiAppKitDrawView {
         &self,
         mut report: crate::native::NativeViewInputDispatchReport,
     ) -> crate::native::NativeViewInputDispatchReport {
+        #[cfg(feature = "window-chrome")]
+        if let Some(window) = self.window() {
+            for command in report.window_commands.clone() {
+                match command {
+                    crate::ZsWindowCommand::Minimize => window.miniaturize(None),
+                    crate::ZsWindowCommand::ToggleMaximize => window.zoom(None),
+                    crate::ZsWindowCommand::Close => window.performClose(None),
+                    crate::ZsWindowCommand::Hide => {
+                        self.ivars().runtime.borrow_mut().suspend_view_when_hidden();
+                        *self.ivars().plan.borrow_mut() = NativeDrawPlan::default();
+                        window.orderOut(None);
+                    }
+                    crate::ZsWindowCommand::Show => {
+                        window.deminiaturize(None);
+                        let plan = self.ivars().runtime.borrow_mut().resume_view_when_visible();
+                        if let Some(plan) = plan {
+                            *self.ivars().plan.borrow_mut() = plan;
+                        }
+                        window.makeKeyAndOrderFront(None);
+                        #[allow(deprecated)]
+                        objc2_app_kit::NSApplication::sharedApplication(self.mtm())
+                            .activateIgnoringOtherApps(true);
+                        self.setNeedsDisplay(true);
+                    }
+                    crate::ZsWindowCommand::Notify { .. } => report
+                        .errors
+                        .push("System notifications are unavailable on this host".into()),
+                }
+            }
+        }
         let (executor, commands) = self
             .ivars()
             .runtime

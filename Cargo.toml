@@ -11,6 +11,11 @@ desktop = ["dep:zsui"]
 smoke = ["desktop", "zsui/native-smoke"]
 ui = ["dep:gpui-kit", "dep:rfd", "dep:smol"]
 
+[workspace]
+members = ["vendor/zsui"]
+default-members = ["."]
+resolver = "3"
+
 [[bin]]
 name = "lx-native"
 path = "src/desktop/main.rs"

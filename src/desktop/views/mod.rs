@@ -144,8 +144,10 @@ pub fn root(state: &State) -> ViewNode<Msg> {
         .on_files_dropped(Msg::Dropped)
         .on_second_instance(Msg::Relaunched)
         .on_media_command(Msg::Media)
-        .status_item(tray(state))
         .taskbar(taskbar(&now));
+    if state.has_tray {
+        root = root.status_item(tray(state));
+    }
     if let Some(session) = media_session(&now) {
         root = root.media_session(session);
     }
@@ -324,7 +326,11 @@ fn taskbar(now: &now::Now) -> ZsTaskbarSpec {
 /// While the window is hidden to the notification area, each new track is
 /// announced once, without a sound.
 fn notification(state: &State, now: &now::Now) -> Option<ZsNotification> {
-    if !state.ui.hidden || !state.ui.notify_tracks || !now.has_track {
+    if !state.has_track_notifications
+        || !state.ui.hidden
+        || !state.ui.notify_tracks
+        || !now.has_track
+    {
         return None;
     }
     {

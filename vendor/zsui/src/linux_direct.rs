@@ -168,6 +168,7 @@ pub(crate) fn run_linux_direct_native_window_event_loop(
 #[derive(Debug, Clone, Copy)]
 enum LinuxDirectUserEvent {
     InvalidateView,
+    CloseWindow(WinitWindowId),
 }
 
 struct LinuxDirectApp {
@@ -274,7 +275,7 @@ impl LinuxDirectApp {
                 )))
                 .with_visible(false)
                 .with_resizable(spec.resizable)
-                .with_decorations(spec.decorations)
+                .with_decorations(spec.decorations && !spec.custom_title_bar)
                 .with_transparent(spec.transparent);
             if let (Some(width), Some(height)) = (spec.min_width, spec.min_height) {
                 attributes = attributes.with_min_inner_size(Size::Logical(LogicalSize::new(
@@ -559,6 +560,20 @@ impl ApplicationHandler<LinuxDirectUserEvent> for LinuxDirectApp {
                     window.apply_report(report, event_loop);
                 }
             }
+            LinuxDirectUserEvent::CloseWindow(id) => {
+                let allow = self.windows.get_mut(&id).is_some_and(|window| {
+                    let report = window.runtime.dispatch_window_close_requested();
+                    let allow = !report.handled || report.quit_requested;
+                    window.apply_report(report, event_loop);
+                    allow
+                });
+                if allow {
+                    self.windows.remove(&id);
+                    if self.windows.is_empty() {
+                        event_loop.exit();
+                    }
+                }
+            }
         }
         self.schedule_control_flow(event_loop);
     }
@@ -584,6 +599,14 @@ impl ApplicationHandler<LinuxDirectUserEvent> for LinuxDirectApp {
             }
             WindowEvent::Resized(size) => {
                 window.resize(size);
+                #[cfg(feature = "window-chrome")]
+                {
+                    let report = window.runtime.dispatch_window_state(crate::ZsWindowState {
+                        maximized: window.window.is_maximized(),
+                        placement: None,
+                    });
+                    window.apply_report(report, event_loop);
+                }
                 window.window.request_redraw();
                 if self.proof_resize_requested && self.proof_resize_window == Some(window_id) {
                     self.proof_resize_event_count = self.proof_resize_event_count.saturating_add(1);
@@ -607,6 +630,24 @@ impl ApplicationHandler<LinuxDirectUserEvent> for LinuxDirectApp {
             WindowEvent::CursorMoved { position, .. } => {
                 let point = window.logical_point(position);
                 window.cursor = point;
+                let cursor = window
+                    .resize_direction(point)
+                    .map(winit::window::CursorIcon::from)
+                    .unwrap_or_else(|| {
+                        match window.runtime.cursor_at(window.content_point(point)) {
+                            crate::ZsCursor::Arrow => winit::window::CursorIcon::Default,
+                            crate::ZsCursor::Pointer => winit::window::CursorIcon::Pointer,
+                            crate::ZsCursor::Text => winit::window::CursorIcon::Text,
+                            crate::ZsCursor::Move => winit::window::CursorIcon::Move,
+                            crate::ZsCursor::ResizeHorizontal => {
+                                winit::window::CursorIcon::EwResize
+                            }
+                            crate::ZsCursor::ResizeVertical => winit::window::CursorIcon::NsResize,
+                            crate::ZsCursor::NotAllowed => winit::window::CursorIcon::NotAllowed,
+                            crate::ZsCursor::Progress => winit::window::CursorIcon::Progress,
+                        }
+                    });
+                window.window.set_cursor(cursor);
                 let mut menu_changed = false;
                 let mut menu_captures = false;
                 if let Some(menu) = window.menu_surface.as_mut() {
@@ -642,6 +683,7 @@ impl ApplicationHandler<LinuxDirectUserEvent> for LinuxDirectApp {
                             .is_some_and(|menu| menu.pointer_down(cursor));
                     if menu_consumed {
                         window.window.request_redraw();
+                    } else if primary && window.begin_window_gesture(cursor) {
                     } else {
                         let report = window.runtime.dispatch_pointer_down_with_button(
                             window.content_point(cursor),
@@ -767,6 +809,8 @@ impl ApplicationHandler<LinuxDirectUserEvent> for LinuxDirectApp {
                     window.window.request_redraw();
                 }
             }
+            #[cfg(feature = "window-chrome")]
+            WindowEvent::Moved(_) => window.last_caption_press = None,
             _ => {}
         }
         if remove_window {
@@ -825,6 +869,9 @@ struct LinuxDirectWindow {
     icon_cache: HashMap<(ZsIcon, u32, bool), LinuxIconRaster>,
     next_tick: Option<Instant>,
     _invalidation_binding: Option<crate::native::UiInvalidationBinding>,
+    event_proxy: Option<EventLoopProxy<LinuxDirectUserEvent>>,
+    #[cfg(feature = "window-chrome")]
+    last_caption_press: Option<(Instant, Point)>,
     menu_surface: Option<crate::linux_direct_menu::LinuxDirectMenuSurface>,
     menu_surface_command_count: usize,
     #[cfg(feature = "linux-direct-accessibility")]
@@ -832,6 +879,57 @@ struct LinuxDirectWindow {
 }
 
 impl LinuxDirectWindow {
+    fn resize_direction(&self, point: Point) -> Option<winit::window::ResizeDirection> {
+        if self.window.is_decorated() || !self.window.is_resizable() || self.window.is_maximized() {
+            return None;
+        }
+        let size = self.logical_window_size();
+        if point.x < 0 || point.y < 0 || point.x >= size.width || point.y >= size.height {
+            return None;
+        }
+        let left = point.x < 6;
+        let right = point.x >= size.width - 6;
+        let top = point.y < 6;
+        let bottom = point.y >= size.height - 6;
+        use winit::window::ResizeDirection as D;
+        match (left, right, top, bottom) {
+            (true, _, true, _) => Some(D::NorthWest),
+            (_, true, true, _) => Some(D::NorthEast),
+            (true, _, _, true) => Some(D::SouthWest),
+            (_, true, _, true) => Some(D::SouthEast),
+            (true, _, _, _) => Some(D::West),
+            (_, true, _, _) => Some(D::East),
+            (_, _, true, _) => Some(D::North),
+            (_, _, _, true) => Some(D::South),
+            _ => None,
+        }
+    }
+
+    fn begin_window_gesture(&mut self, point: Point) -> bool {
+        if let Some(direction) = self.resize_direction(point) {
+            return self.window.drag_resize_window(direction).is_ok();
+        }
+        #[cfg(feature = "window-chrome")]
+        if self
+            .runtime
+            .window_drag_region_at(self.content_point(point))
+        {
+            let now = Instant::now();
+            let double = self.last_caption_press.is_some_and(|(at, previous)| {
+                now.duration_since(at) < Duration::from_millis(500)
+                    && (previous.x - point.x).abs() <= 4
+                    && (previous.y - point.y).abs() <= 4
+            });
+            self.last_caption_press = Some((now, point));
+            if double {
+                self.last_caption_press = None;
+                self.window.set_maximized(!self.window.is_maximized());
+                return true;
+            }
+            return self.window.drag_window().is_ok();
+        }
+        false
+    }
     fn logical_window_size(&self) -> crate::Size {
         let logical = self.physical_size.to_logical::<f64>(self.scale_factor);
         crate::Size {
@@ -911,6 +1009,9 @@ impl LinuxDirectWindow {
             icon_cache: HashMap::new(),
             next_tick: None,
             _invalidation_binding: None,
+            event_proxy: None,
+            #[cfg(feature = "window-chrome")]
+            last_caption_press: None,
             menu_surface,
             menu_surface_command_count: 0,
             #[cfg(feature = "linux-direct-accessibility")]
@@ -919,6 +1020,7 @@ impl LinuxDirectWindow {
     }
 
     fn bind_invalidation_target(&mut self, proxy: EventLoopProxy<LinuxDirectUserEvent>) {
+        self.event_proxy = Some(proxy.clone());
         self._invalidation_binding = self.runtime.bind_invalidation_target(move || {
             let _ = proxy.send_event(LinuxDirectUserEvent::InvalidateView);
         });
@@ -1188,6 +1290,39 @@ impl LinuxDirectWindow {
         mut report: crate::native::NativeViewInputDispatchReport,
         event_loop: &ActiveEventLoop,
     ) -> crate::native::NativeViewInputDispatchReport {
+        #[cfg(feature = "window-chrome")]
+        for command in report.window_commands.clone() {
+            match command {
+                crate::ZsWindowCommand::Minimize => self.window.set_minimized(true),
+                crate::ZsWindowCommand::ToggleMaximize => {
+                    self.window.set_maximized(!self.window.is_maximized())
+                }
+                crate::ZsWindowCommand::Close => {
+                    if let Some(proxy) = &self.event_proxy {
+                        let _ =
+                            proxy.send_event(LinuxDirectUserEvent::CloseWindow(self.window.id()));
+                    }
+                }
+                crate::ZsWindowCommand::Hide => {
+                    self.window.set_visible(false);
+                    if self.runtime.suspend_view_when_hidden() {
+                        self.plan = NativeDrawPlan::default();
+                    }
+                }
+                crate::ZsWindowCommand::Show => {
+                    self.window.set_visible(true);
+                    self.window.set_minimized(false);
+                    if let Some(plan) = self.runtime.resume_view_when_visible() {
+                        self.plan = plan;
+                    }
+                    self.window.focus_window();
+                    self.window.request_redraw();
+                }
+                crate::ZsWindowCommand::Notify { .. } => report
+                    .errors
+                    .push("System notifications are unavailable on this host".into()),
+            }
+        }
         let (executor, commands) = self.runtime.take_pending_app_command_dispatch();
         let effect_executed = with_linux_direct_file_dialog_parent(&self.window, || {
             crate::native::dispatch_deferred_native_view_app_commands(

@@ -431,6 +431,9 @@ pub struct State {
     pub rows: crate::rows::RowCache,
     pub groups: crate::rows::GroupCache,
     pub data_dir: PathBuf,
+    pub instance_inbox: crate::instance::Inbox,
+    pub has_tray: bool,
+    pub has_track_notifications: bool,
 }
 
 /// Window preferences kept next to the library data.
@@ -496,6 +499,7 @@ pub fn saved_placement(data_dir: &std::path::Path) -> Option<ZsWindowPlacement> 
 impl State {
     pub fn new(bridge: Bridge, data_dir: PathBuf) -> Self {
         let prefs = Prefs::load(&data_dir);
+        let capabilities = zsui::HostCapabilities::current_native_window_host();
         let mut state = Self {
             pickers: crate::pickers::Pickers::default(),
             bridge,
@@ -536,6 +540,9 @@ impl State {
             rows: crate::rows::RowCache::default(),
             groups: crate::rows::GroupCache::default(),
             data_dir,
+            instance_inbox: crate::instance::Inbox::default(),
+            has_tray: capabilities.tray_or_status_menu.is_fully_supported(),
+            has_track_notifications: matches!(capabilities.platform, zsui::PlatformName::Windows),
         };
         if prefs.api_enabled {
             state.send(Job::SetOpenApi {
@@ -1115,6 +1122,7 @@ pub fn update(state: &mut State, msg: Msg, cx: &mut AppCx) {
         }
         Msg::Dropped(paths) => state.import_paths(paths),
         Msg::Relaunched(args) => {
+            state.instance_inbox.handled();
             state.show_window(cx);
             let paths = launch_paths(&args);
             if !paths.is_empty() {
@@ -1153,6 +1161,11 @@ fn app_message(state: &mut State, id: &str, cx: &mut AppCx) {
         CMD_CLOSE => {
             if state.ui.close_to_tray {
                 state.ui.menu = None;
+                if !state.has_tray {
+                    state.ui.hidden = false;
+                    cx.window_command(ZsWindowCommand::Minimize);
+                    return;
+                }
                 state.ui.hidden = true;
                 // The playing track is not news; the next one is.
                 let playing = views::now::now(state).id;
@@ -1163,6 +1176,7 @@ fn app_message(state: &mut State, id: &str, cx: &mut AppCx) {
                     .unwrap_or_else(|e| e.into_inner()) = Some(playing);
                 cx.window_command(ZsWindowCommand::Hide);
             } else {
+                state.instance_inbox.close();
                 cx.quit();
             }
         }
@@ -1170,7 +1184,19 @@ fn app_message(state: &mut State, id: &str, cx: &mut AppCx) {
         CMD_TOGGLE => state.transport(Transport::Toggle),
         CMD_NEXT => state.transport(Transport::Next),
         CMD_PREVIOUS => state.transport(Transport::Previous),
-        CMD_QUIT => cx.quit(),
+        CMD_QUIT => {
+            state.instance_inbox.close();
+            cx.quit();
+        }
+        crate::instance::RELAUNCH_COMMAND => {
+            if let Some(paths) = state.instance_inbox.take() {
+                state.instance_inbox.handled();
+                state.show_window(cx);
+                if !paths.is_empty() {
+                    state.import_paths(paths);
+                }
+            }
+        }
         _ => {}
     }
 }

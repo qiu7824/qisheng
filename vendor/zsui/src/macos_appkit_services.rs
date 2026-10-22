@@ -529,7 +529,7 @@ impl WindowService for MacosAppKitWindowService {
                 "the AppKit transparent window surface is not connected",
             ));
         }
-        let mut style = if spec.decorations {
+        let mut style = if spec.decorations || spec.custom_title_bar {
             NSWindowStyleMask::Titled
                 | NSWindowStyleMask::Closable
                 | NSWindowStyleMask::Miniaturizable
@@ -538,6 +538,9 @@ impl WindowService for MacosAppKitWindowService {
         };
         if spec.resizable {
             style |= NSWindowStyleMask::Resizable;
+        }
+        if spec.custom_title_bar {
+            style |= NSWindowStyleMask::FullSizeContentView;
         }
         let window = unsafe {
             NSWindow::initWithContentRect_styleMask_backing_defer(
@@ -553,6 +556,19 @@ impl WindowService for MacosAppKitWindowService {
         };
         unsafe { window.setReleasedWhenClosed(false) };
         window.setTitle(&NSString::from_str(&spec.title));
+        if spec.custom_title_bar {
+            window.setTitleVisibility(objc2_app_kit::NSWindowTitleVisibility::Hidden);
+            window.setTitlebarAppearsTransparent(true);
+            for button in [
+                objc2_app_kit::NSWindowButton::CloseButton,
+                objc2_app_kit::NSWindowButton::MiniaturizeButton,
+                objc2_app_kit::NSWindowButton::ZoomButton,
+            ] {
+                if let Some(button) = window.standardWindowButton(button) {
+                    button.setHidden(true);
+                }
+            }
+        }
         if let (Some(width), Some(height)) = (spec.min_width, spec.min_height) {
             window.setMinSize(NSSize::new(width.max(1) as f64, height.max(1) as f64));
         }

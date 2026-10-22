@@ -148,6 +148,7 @@ struct UiInvalidationState {
     pending: std::sync::atomic::AtomicBool,
     next_binding: std::sync::atomic::AtomicU64,
     target: std::sync::Mutex<Option<(u64, UiInvalidationTarget)>>,
+    commands: std::sync::Mutex<std::collections::VecDeque<Command>>,
 }
 
 impl std::fmt::Debug for UiInvalidationHandle {
@@ -180,6 +181,56 @@ impl UiInvalidationHandle {
     /// delivered when the event loop binds the window.
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Queues an owned application command for delivery on the native UI thread.
+    /// Up to 32 commands are retained, including before the window binds. A
+    /// suspended view can receive commands that restore or close its window.
+    pub fn request_app_command(&self, command: Command) -> crate::ZsuiResult<()> {
+        if let Command::Custom { id, payload } = &command {
+            if id.is_empty()
+                || id.len() > 256
+                || payload.as_ref().is_some_and(|value| value.len() > 65536)
+            {
+                return Err(crate::ZsuiError::invalid_spec(
+                    "application_command",
+                    "command identifier or payload exceeds its bound",
+                ));
+            }
+        }
+        {
+            let mut commands = self
+                .inner
+                .commands
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            if commands.len() >= 32 {
+                return Err(crate::ZsuiError::host(
+                    "queue_application_command",
+                    "the window command queue is full",
+                ));
+            }
+            commands.push_back(command);
+        }
+        self.request_rebuild();
+        Ok(())
+    }
+
+    fn has_commands(&self) -> bool {
+        !self
+            .inner
+            .commands
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .is_empty()
+    }
+
+    fn take_command(&self) -> Option<Command> {
+        self.inner
+            .commands
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .pop_front()
     }
 
     /// Requests one stateful View rebuild and repaint.
@@ -2273,13 +2324,23 @@ impl NativeViewInputRuntime {
 
     /// Consumes one externally requested rebuild on the native UI thread.
     pub(crate) fn refresh_invalidated_view(&mut self) -> NativeViewInputDispatchReport {
-        if self.view_suspended {
-            return NativeViewInputDispatchReport::default();
-        }
         let Some(handle) = self.invalidation_handle.clone() else {
             return NativeViewInputDispatchReport::default();
         };
-        if !handle.take_request() {
+        if self.view_suspended && !handle.has_commands() {
+            return NativeViewInputDispatchReport::default();
+        }
+        if !handle.take_request() && !handle.has_commands() {
+            return NativeViewInputDispatchReport::default();
+        }
+        if let Some(command) = handle.take_command() {
+            let report = self.dispatch_app_command(command);
+            if handle.has_commands() {
+                handle.request_rebuild();
+            }
+            return report;
+        }
+        if self.view_suspended {
             return NativeViewInputDispatchReport::default();
         }
         let Some(runtime) = self.live_view.clone() else {
@@ -10883,6 +10944,69 @@ mod tests {
         assert_eq!(wake_count.load(Ordering::SeqCst), 1);
         assert!(handle.take_request());
         assert!(!handle.take_request());
+    }
+
+    #[test]
+    fn queued_application_commands_preserve_order_and_reject_overflow() {
+        let handle = UiInvalidationHandle::new();
+        for index in 0..32 {
+            handle
+                .request_app_command(Command::custom(format!("command-{index}")))
+                .unwrap();
+        }
+        assert!(handle.request_app_command(Command::Quit).is_err());
+        assert!(handle
+            .request_app_command(Command::custom_with_payload("large", "x".repeat(65537)))
+            .is_err());
+        for index in 0..32 {
+            assert_eq!(
+                handle.take_command(),
+                Some(Command::custom(format!("command-{index}")))
+            );
+        }
+        assert!(!handle.has_commands());
+    }
+
+    #[cfg(all(feature = "label", feature = "window-chrome"))]
+    #[test]
+    fn queued_restore_reaches_the_update_thread_while_the_view_is_suspended() {
+        use std::sync::{
+            atomic::{AtomicUsize, Ordering},
+            Arc,
+        };
+        let ui_thread = std::thread::current().id();
+        let handled = Arc::new(AtomicUsize::new(0));
+        let observed = handled.clone();
+        let handle = UiInvalidationHandle::new();
+        let builder = native_window("Queued restore")
+            .release_view_when_hidden()
+            .invalidation_handle(handle.clone())
+            .stateful_view_with_app_commands(
+                0usize,
+                |count| crate::text(format!("{count}")),
+                move |count, (), cx| {
+                    assert_eq!(std::thread::current().id(), ui_thread);
+                    *count += 1;
+                    observed.fetch_add(1, Ordering::AcqRel);
+                    cx.window_command(crate::ZsWindowCommand::Show);
+                },
+                |command| {
+                    matches!(command, Command::Custom { id, .. } if id == "restore").then_some(())
+                },
+            );
+        let mut runtime = builder.native_view_input_runtime();
+        assert!(runtime.suspend_view_when_hidden());
+        std::thread::spawn(move || {
+            handle
+                .request_app_command(Command::custom("restore"))
+                .unwrap()
+        })
+        .join()
+        .unwrap();
+        let report = runtime.refresh_invalidated_view();
+        assert_eq!(handled.load(Ordering::Acquire), 1);
+        assert_eq!(report.window_commands, [crate::ZsWindowCommand::Show]);
+        assert!(runtime.resume_view_when_visible().is_some());
     }
 
     #[test]

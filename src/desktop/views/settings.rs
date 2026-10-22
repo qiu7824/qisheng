@@ -122,6 +122,8 @@ struct SettingsView {
     folders: Vec<String>,
     close_to_tray: bool,
     notify_tracks: bool,
+    has_tray: bool,
+    has_track_notifications: bool,
 }
 
 fn settings_view(state: &State) -> SettingsView {
@@ -192,6 +194,8 @@ fn settings_view(state: &State) -> SettingsView {
             .collect(),
         close_to_tray: state.ui.close_to_tray,
         notify_tracks: state.ui.notify_tracks,
+        has_tray: state.has_tray,
+        has_track_notifications: state.has_track_notifications,
     }
 }
 
@@ -359,13 +363,26 @@ fn view(state: &State) -> ViewNode<Msg> {
 
         // Window.
         section(&mut p, &mut y, "窗口");
-        card(&mut p, y, row_h * 2.0);
+        let window_rows = if view.has_track_notifications {
+            2.0
+        } else {
+            1.0
+        };
+        card(&mut p, y, row_h * window_rows);
         label(
             &mut p,
             y,
             row_h,
-            "关闭窗口时最小化到托盘",
-            "音乐不停，点通知区域的图标恢复",
+            if view.has_tray {
+                "关闭窗口时保留后台播放"
+            } else {
+                "关闭窗口时最小化"
+            },
+            if view.has_tray {
+                "音乐不停，点应用的状态图标恢复"
+            } else {
+                "音乐不停，可从任务栏恢复窗口"
+            },
         );
         toggle(
             &mut p,
@@ -374,22 +391,24 @@ fn view(state: &State) -> ViewNode<Msg> {
             view.close_to_tray,
             rid(R_TOGGLE, T_CLOSE_TO_TRAY),
         );
-        divider(&mut p, y + row_h);
-        label(
-            &mut p,
-            y + row_h,
-            row_h,
-            "在托盘时通知切歌",
-            "窗口隐藏后，换歌时显示一条静音通知",
-        );
-        toggle(
-            &mut p,
-            y + row_h,
-            row_h,
-            view.notify_tracks,
-            rid(R_TOGGLE, T_NOTIFY_TRACKS),
-        );
-        y += row_h * 2.0 + 28.0;
+        if view.has_track_notifications {
+            divider(&mut p, y + row_h);
+            label(
+                &mut p,
+                y + row_h,
+                row_h,
+                "在托盘时通知切歌",
+                "窗口隐藏后，换歌时显示一条静音通知",
+            );
+            toggle(
+                &mut p,
+                y + row_h,
+                row_h,
+                view.notify_tracks,
+                rid(R_TOGGLE, T_NOTIFY_TRACKS),
+            );
+        }
+        y += row_h * window_rows + 28.0;
 
         // Playback.
         section(&mut p, &mut y, "播放");

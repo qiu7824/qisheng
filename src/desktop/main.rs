@@ -11,6 +11,7 @@ mod art;
 mod art_cache;
 mod bridge;
 mod fmt;
+mod instance;
 mod paint;
 mod pickers;
 mod rows;
@@ -98,35 +99,34 @@ fn args() -> anyhow::Result<Option<Args>> {
     }))
 }
 
-/// One window per data folder: a second launch with the same data hands its
-/// arguments to the running player, which comes to the front.
-fn instance_id(data_dir: &std::path::Path) -> String {
-    use std::hash::{Hash, Hasher};
-    let path = std::fs::canonicalize(data_dir).unwrap_or_else(|_| data_dir.to_path_buf());
-    let mut hasher = std::hash::DefaultHasher::new();
-    path.to_string_lossy().to_lowercase().hash(&mut hasher);
-    format!("lx-native-{:016x}", hasher.finish())
-}
-
 fn run() -> anyhow::Result<()> {
     let Some(args) = args()? else {
         return Ok(());
     };
     let smoke = cfg!(feature = "smoke") && args.raw.iter().any(|a| a == "--smoke");
-    let instance = instance_id(&args.data_dir);
-    if !smoke && zsui::zs_forward_to_running_instance(&instance) {
-        return Ok(());
-    }
+    let instance_smoke =
+        cfg!(feature = "smoke") && args.raw.iter().any(|a| a == "--instance-smoke");
+    let instance = instance::id_for_directory(&args.data_dir)?;
+    let invalidate = UiInvalidationHandle::new();
+    let inbox = instance::Inbox::default();
+    let opened = app::launch_paths(&args.raw[1..]);
+    let _instance_guard = if !smoke || instance_smoke {
+        match instance::start(&instance, &opened, inbox.clone(), invalidate.clone())? {
+            instance::Launch::Forwarded => return Ok(()),
+            instance::Launch::Primary(guard) => Some(guard),
+        }
+    } else {
+        None
+    };
     let config = if args.memory_audio {
         BackendConfig::headless(args.data_dir.clone())
     } else {
         BackendConfig::new(args.data_dir.clone())
     };
     let backend = BackendHandle::start(config)?;
-    let invalidate = UiInvalidationHandle::new();
     let bridge = bridge::Bridge::start(backend.clone(), invalidate.clone());
-    let state = app::State::new(bridge, args.data_dir.clone());
-    let opened = app::launch_paths(&args.raw[1..]);
+    let mut state = app::State::new(bridge, args.data_dir.clone());
+    state.instance_inbox = inbox.clone();
     if !opened.is_empty() {
         state.import_paths(opened);
     }
@@ -135,8 +135,10 @@ fn run() -> anyhow::Result<()> {
         .size(1280, 800)
         .min_size(1100, 700)
         .custom_title_bar(true);
-    if !smoke {
+    if !smoke || instance_smoke {
         window = window.single_instance(instance);
+    }
+    if !smoke {
         if let Some(placement) = app::saved_placement(&args.data_dir) {
             window = window.placement(placement);
         }
@@ -150,12 +152,28 @@ fn run() -> anyhow::Result<()> {
     #[cfg(feature = "smoke")]
     if args.raw.iter().any(|a| a == "--smoke") {
         let report = builder.run_smoke(smoke_options(&args.raw)?)?;
+        inbox.close();
         println!("{:?}", report.screenshot_file);
         let _ = backend.shutdown(Duration::from_secs(5));
+        if instance_smoke {
+            anyhow::ensure!(
+                inbox.handled_count() > 0,
+                "No second launch reached the native UI"
+            );
+        }
+        if let Some(path) = &report.screenshot_file {
+            std::fs::write(
+                std::path::Path::new(path).with_extension("interaction.json"),
+                serde_json::to_vec_pretty(&serde_json::json!({
+                    "native": report, "relaunches_handled": inbox.handled_count()
+                }))?,
+            )?;
+        }
         return Ok(());
     }
 
     builder.run()?;
+    inbox.close();
     backend
         .shutdown(Duration::from_secs(5))
         .map_err(|error| anyhow::anyhow!("backend shutdown: {error}"))?;
@@ -177,6 +195,9 @@ fn smoke_options(raw: &[String]) -> anyhow::Result<zsui::NativeWindowSmokeRunOpt
     let mut options = zsui::NativeWindowSmokeRunOptions::new(ms)
         .screenshot_file(file)
         .require_screenshot(true);
+    if raw.iter().any(|argument| argument == "--smoke-close") {
+        options = options.native_window_close_request();
+    }
     let point = |v: &str| -> anyhow::Result<zsui::Point> {
         let mut it = v.split(',').map(|n| n.trim().parse::<i32>().ok());
         match (it.next().flatten(), it.next().flatten()) {
