@@ -4,7 +4,6 @@
 *.tmp
 /delivery/
 /analysis/
-/.cargo/config.toml
 .env
 .env.*
 *.pem

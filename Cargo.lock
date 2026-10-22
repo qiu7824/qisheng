@@ -4579,6 +4579,7 @@ dependencies = [
  "libc",
  "lofty",
  "md-5",
+ "notify",
  "num-bigint 0.4.8",
  "rcgen",
  "regex",

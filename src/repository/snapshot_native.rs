@@ -611,9 +611,30 @@ impl ColdCleanup {
             fact.removed = true;
             Ok(fact)
         }
-        #[cfg(not(windows))]
+        #[cfg(any(target_os = "linux", target_os = "macos"))]
         {
-            Err(unsupported("Cold cleanup attestation is Windows-only"))
+            let name = self
+                .fact
+                .file
+                .temporary_name
+                .as_deref()
+                .context("Anonymous snapshot cleanup requires its retained owner")?;
+            let identity = self
+                .fact
+                .file
+                .identity
+                .as_ref()
+                .context("Cleanup identity missing")?;
+            platform::verify_absent(self.directory.parent(), name, identity)?;
+            let mut fact = self.fact.clone();
+            fact.removed = true;
+            Ok(fact)
+        }
+        #[cfg(not(any(windows, target_os = "linux", target_os = "macos")))]
+        {
+            Err(unsupported(
+                "Cold snapshot cleanup is unavailable on this platform",
+            ))
         }
     }
 }
@@ -881,6 +902,11 @@ impl ActualFile {
                 platform::stamp(owner.file()?)? == stamp,
                 "Recovery representation changed before writer open",
             )?;
+            #[cfg(unix)]
+            owner
+                .file()?
+                .try_lock()
+                .context("Recovery file already has a writer")?;
             owner.stamp = Some(stamp);
             owner.verify(context)
         })();
@@ -996,9 +1022,9 @@ impl ActualFile {
             Ok((charge, nonce, name, file))
         })();
         let (charge, nonce, name, file) = preparation.map_err(|e| NativeFailure::new(e, None))?;
-        #[cfg(windows)]
+        #[cfg(any(windows, target_os = "macos"))]
         let temporary_name = Some(name);
-        #[cfg(not(windows))]
+        #[cfg(not(any(windows, target_os = "macos")))]
         let temporary_name = if manifest { Some(name) } else { None };
         let mut owner = Self {
             file: Some(file),
@@ -1052,6 +1078,10 @@ impl ActualFile {
         context.check()?;
         self.directory.verify()?;
         platform::validate(self.file()?, false)?;
+        #[cfg(unix)]
+        self.file()?
+            .try_lock()
+            .context("Snapshot file already has a writer")?;
         self.metadata.identity = Some(platform::identity(self.file()?)?);
         self.stamp = Some(platform::stamp(self.file()?)?);
         self.verify(context)
@@ -1263,9 +1293,9 @@ impl ActualFile {
             Ok((charge, nonce, name, file))
         })();
         let (charge, nonce, name, file) = preparation.map_err(|e| NativeFailure::new(e, None))?;
-        #[cfg(windows)]
+        #[cfg(any(windows, target_os = "macos"))]
         let temporary_name = Some(name);
-        #[cfg(not(windows))]
+        #[cfg(not(any(windows, target_os = "macos")))]
         let temporary_name = {
             let _ = name;
             None
@@ -1346,9 +1376,21 @@ impl ActualFile {
             .context("Snapshot whole digest is missing")?;
         self.file()?.sync_all()?;
         self.verify(context)?;
+        #[cfg(not(target_os = "macos"))]
         platform::publish(
             self.file()?,
             self.directory.parent(),
+            basename,
+            self.identity()?,
+        )?;
+        #[cfg(target_os = "macos")]
+        platform::publish_named(
+            self.file()?,
+            self.directory.parent(),
+            self.metadata
+                .temporary_name
+                .as_deref()
+                .context("Snapshot temporary name missing")?,
             basename,
             self.identity()?,
         )?;
@@ -1487,7 +1529,25 @@ impl ActualFile {
                     self.stamp = Some(platform::stamp(self.file()?)?);
                     self.metadata.bytes = self.stamp.as_ref().unwrap().length;
                     self.seal_sha256(context)?;
-                    platform::delete_private(self.file()?)?;
+                    observed(&DurableCleanupFact {
+                        file: self.metadata(),
+                        stamp: self.stamp.clone().unwrap(),
+                        sha256: self.verified_sha.clone().unwrap(),
+                        pending_zero_links: false,
+                        removed: false,
+                    })?;
+                    platform::delete_private(
+                        self.file()?,
+                        self.directory.parent(),
+                        self.metadata.temporary_name.as_deref(),
+                    )?;
+                    observed(&DurableCleanupFact {
+                        file: self.metadata(),
+                        stamp: self.stamp.clone().unwrap(),
+                        sha256: self.verified_sha.clone().unwrap(),
+                        pending_zero_links: true,
+                        removed: false,
+                    })?;
                 }
                 self.deletion_requested = true;
             }
@@ -2260,7 +2320,65 @@ impl SourceFileProof {
             }
             unsafe { self.verify_handle(handle) }
         }
-        #[cfg(not(windows))]
+        #[cfg(unix)]
+        {
+            use rusqlite::ffi;
+            use std::{ffi::CStr, os::unix::io::FromRawFd};
+            ensure!(!file.is_null(), "SQLite native source file is null");
+            let methods = unsafe { (*file).pMethods };
+            ensure!(
+                !methods.is_null(),
+                "SQLite native source methods are absent"
+            );
+            let control = unsafe { (*methods).xFileControl }
+                .context("SQLite source file-control is absent")?;
+            ensure!(
+                unsafe { ffi::sqlite3_libversion_number() } == 3_053_002,
+                "SQLite FILESTAT descriptor schema requires the pinned bundled version"
+            );
+            let builder = unsafe { ffi::sqlite3_str_new(std::ptr::null_mut()) };
+            ensure!(
+                !builder.is_null(),
+                "Cannot allocate SQLite descriptor diagnostics"
+            );
+            let rc = unsafe { control(file, ffi::SQLITE_FCNTL_FILESTAT, builder.cast()) };
+            let length = unsafe { ffi::sqlite3_str_length(builder) };
+            let diagnostic_error = unsafe { ffi::sqlite3_str_errcode(builder) };
+            let text = unsafe { ffi::sqlite3_str_finish(builder) };
+            let result = (|| -> Result<()> {
+                ensure!(
+                    rc == ffi::SQLITE_OK && diagnostic_error == ffi::SQLITE_OK && !text.is_null(),
+                    "SQLite descriptor diagnostics are unavailable; enable SQLITE_ENABLE_FILESTAT"
+                );
+                ensure!(
+                    (1..=65536).contains(&length),
+                    "SQLite descriptor diagnostics exceed their bound"
+                );
+                let document: serde_json::Value =
+                    serde_json::from_slice(unsafe { CStr::from_ptr(text) }.to_bytes())?;
+                let descriptor = document
+                    .get("h")
+                    .and_then(serde_json::Value::as_i64)
+                    .and_then(|value| i32::try_from(value).ok())
+                    .filter(|value| *value >= 0)
+                    .context("SQLite did not expose a valid Unix file descriptor")?;
+                // The descriptor remains owned by SQLite; no dup or close occurs.
+                let borrowed =
+                    std::mem::ManuallyDrop::new(unsafe { File::from_raw_fd(descriptor) });
+                platform::validate(&borrowed, false)?;
+                let expected = self.metadata()?;
+                require_unchanged(
+                    platform::identity(&borrowed)? == expected.identity
+                        && platform::volume(&borrowed)? == expected.volume
+                        && platform::links(&borrowed)? == 1,
+                    "Default SQLite VFS opened another native source object",
+                )?;
+                self.verify()
+            })();
+            unsafe { ffi::sqlite3_free(text.cast()) };
+            result
+        }
+        #[cfg(not(any(windows, unix)))]
         {
             let _ = file;
             Err(unsupported(
@@ -3416,28 +3534,38 @@ mod platform {
         Ok(unsafe { File::from_raw_fd(fd) })
     }
     #[cfg(target_os = "macos")]
-    pub(super) fn create_private(_parent: &File, _name: Option<&str>) -> Result<File> {
-        Err(unsupported(
-            "macOS physical snapshot publication requires a journaled named-file owner",
-        ))
+    pub(super) fn create_private(parent: &File, name: Option<&str>) -> Result<File> {
+        create_manifest(
+            parent,
+            name.context("Named snapshot allocation requires a nonce")?,
+        )
     }
-    pub(super) fn verify_name(parent: &File, name: &str, expected: &FileIdentity) -> Result<()> {
+    fn stat_name(parent: &File, name: &str) -> Result<libc::stat> {
+        validate_basename(name)?;
         let name = CString::new(name)?;
-        let fd = unsafe {
-            libc::openat(
+        let mut result = std::mem::MaybeUninit::<libc::stat>::uninit();
+        if unsafe {
+            libc::fstatat(
                 parent.as_raw_fd(),
                 name.as_ptr(),
-                libc::O_RDONLY | libc::O_NOFOLLOW | libc::O_CLOEXEC,
+                result.as_mut_ptr(),
+                libc::AT_SYMLINK_NOFOLLOW,
             )
-        };
-        if fd < 0 {
+        } != 0
+        {
             return Err(io::Error::last_os_error().into());
         }
-        let file = unsafe { File::from_raw_fd(fd) };
-        validate(&file, false)?;
+        Ok(unsafe { result.assume_init() })
+    }
+    pub(super) fn verify_name(parent: &File, name: &str, expected: &FileIdentity) -> Result<()> {
+        // fstatat does not close an extra descriptor for a live SQLite inode,
+        // which would release that process's POSIX advisory locks.
+        let stat = stat_name(parent, name)?;
         ensure!(
-            identity(&file)? == *expected,
-            "Published snapshot leaf belongs to another object"
+            stat.st_mode & libc::S_IFMT == libc::S_IFREG
+                && stat.st_dev as u64 == expected.device
+                && stat.st_ino.to_string() == expected.object,
+            "Snapshot namespace identifies a foreign object"
         );
         Ok(())
     }
@@ -3488,34 +3616,74 @@ mod platform {
         Ok(())
     }
     #[cfg(target_os = "macos")]
-    pub(super) fn publish(
-        _file: &File,
-        _parent: &File,
-        _name: &str,
-        _expected: &FileIdentity,
+    pub(super) fn publish_named(
+        file: &File,
+        parent: &File,
+        temporary: &str,
+        name: &str,
+        expected: &FileIdentity,
     ) -> Result<()> {
-        Err(unsupported(
-            "macOS physical snapshot publication requires a journaled named-file owner",
-        ))
+        ensure!(
+            identity(file)? == *expected && links(file)? == 1,
+            "Snapshot descriptor changed before publication"
+        );
+        verify_name(parent, temporary, expected)?;
+        validate_basename(name)?;
+        let temporary = CString::new(temporary)?;
+        let name = CString::new(name)?;
+        if unsafe {
+            libc::renameatx_np(
+                parent.as_raw_fd(),
+                temporary.as_ptr(),
+                parent.as_raw_fd(),
+                name.as_ptr(),
+                libc::RENAME_EXCL,
+            )
+        } != 0
+        {
+            return Err(io::Error::last_os_error())
+                .context("Cannot publish snapshot without replacing an existing file");
+        }
+        Ok(())
     }
     pub(super) fn sync_directory(directory: &File) -> Result<()> {
         directory.sync_all()?;
         Ok(())
     }
-    pub(super) fn delete_private(file: &File) -> Result<()> {
-        if links(file)? != 0 {
-            return Err(unsupported(
-                "Named Linux snapshot has no verified exact-FD unlink primitive",
-            ));
+    pub(super) fn delete_private(file: &File, parent: &File, name: Option<&str>) -> Result<()> {
+        let count = links(file)?;
+        if count == 0 {
+            return Ok(());
         }
+        ensure!(count == 1, "Snapshot cleanup refuses aliased files");
+        let name = name.context("Named snapshot has no recorded temporary name")?;
+        verify_name(parent, name, &identity(file)?)?;
+        let encoded = CString::new(name)?;
+        if unsafe { libc::unlinkat(parent.as_raw_fd(), encoded.as_ptr(), 0) } != 0 {
+            return Err(io::Error::last_os_error())
+                .context("Cannot retire the selected snapshot temporary file");
+        }
+        ensure!(
+            links(file)? == 0,
+            "Snapshot namespace changed during retirement"
+        );
+        parent.sync_all()?;
         Ok(())
     }
-    pub(super) fn verify_absent(
-        _parent: &File,
-        _name: &str,
-        _expected: &FileIdentity,
-    ) -> Result<()> {
-        bail!("UnsupportedCapability: Linux anonymous snapshots have no private leaf")
+    pub(super) fn verify_absent(parent: &File, name: &str, _expected: &FileIdentity) -> Result<()> {
+        match stat_name(parent, name) {
+            Err(error)
+                if error
+                    .downcast_ref::<io::Error>()
+                    .is_some_and(|e| e.kind() == io::ErrorKind::NotFound) =>
+            {
+                Ok(())
+            }
+            Err(error) => Err(error),
+            Ok(_) => Err(anyhow::anyhow!(
+                "Cleanup leaf is still present; no file was removed"
+            )),
+        }
     }
 
     pub(super) fn read_at(file: &File, bytes: &mut [u8], offset: u64) -> Result<usize> {
@@ -3591,8 +3759,21 @@ mod platform {
         // Retain the newly created named journal before fallible inspection.
         Ok(unsafe { File::from_raw_fd(descriptor) })
     }
-    pub(super) fn open_recovery(_parent: &File, _name: &str) -> Result<File> {
-        bail!("UnsupportedCapability: Linux cold snapshot recovery is not enabled")
+    pub(super) fn open_recovery(parent: &File, name: &str) -> Result<File> {
+        validate_basename(name)?;
+        let name = CString::new(name)?;
+        let descriptor = unsafe {
+            libc::openat(
+                parent.as_raw_fd(),
+                name.as_ptr(),
+                libc::O_RDWR | libc::O_NOFOLLOW | libc::O_CLOEXEC,
+            )
+        };
+        if descriptor < 0 {
+            return Err(io::Error::last_os_error().into());
+        }
+        // The caller retains this exact descriptor before identity/stamp checks.
+        Ok(unsafe { File::from_raw_fd(descriptor) })
     }
 }
 #[cfg(not(any(windows, target_os = "linux", target_os = "macos")))]
@@ -3633,7 +3814,7 @@ mod platform {
     pub(super) fn sync_directory(_directory: &File) -> Result<()> {
         bail!("UnsupportedCapability")
     }
-    pub(super) fn delete_private(_file: &File) -> Result<()> {
+    pub(super) fn delete_private(_file: &File, _parent: &File, _name: Option<&str>) -> Result<()> {
         bail!("UnsupportedCapability")
     }
     pub(super) fn verify_absent(
@@ -3835,7 +4016,7 @@ mod tests {
         assert_eq!(limiter.stats().active, 0);
     }
 
-    #[cfg(any(windows, target_os = "linux"))]
+    #[cfg(any(windows, target_os = "linux", target_os = "macos"))]
     #[test]
     fn native_checked_file_enforces_length_chunk_and_subfile_limits() {
         let folder = test_folder();
@@ -3873,7 +4054,7 @@ mod tests {
         assert_eq!(limiter.stats().active, 1);
     }
 
-    #[cfg(any(windows, target_os = "linux"))]
+    #[cfg(any(windows, target_os = "linux", target_os = "macos"))]
     #[test]
     fn selected_copy_requires_seal_and_no_replace_preserves_foreign_final() {
         let folder = test_folder();
@@ -3924,7 +4105,7 @@ mod tests {
         );
     }
 
-    #[cfg(windows)]
+    #[cfg(any(windows, target_os = "linux", target_os = "macos"))]
     #[test]
     fn sqlite_handle_anchor_rejects_another_database_and_retains_failed_pin() {
         let folder = test_folder();

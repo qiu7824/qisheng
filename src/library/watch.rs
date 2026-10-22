@@ -19,6 +19,9 @@ mod platform;
 #[cfg(target_os = "linux")]
 #[path = "watch_linux.rs"]
 mod platform;
+#[cfg(target_os = "macos")]
+#[path = "watch_macos.rs"]
+mod platform;
 
 const MAX_CONTEXTS: usize = 128;
 const MAX_HINTS: usize = 200;
@@ -1075,7 +1078,7 @@ mod tests {
     }
 }
 
-#[cfg(not(any(windows, target_os = "linux")))]
+#[cfg(not(any(windows, target_os = "linux", target_os = "macos")))]
 mod platform {
     use super::*;
     pub(super) fn run(
