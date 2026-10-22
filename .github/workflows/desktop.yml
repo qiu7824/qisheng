@@ -144,8 +144,44 @@ jobs:
 
       - name: Application and integration tests
         run: |
-          set -o pipefail
-          cargo test --locked --bins --test '*' -- --test-threads=1 2>&1 | tee "$QISHENG_CI_ROOT/evidence/tests-applications.log"
+          python - <<'PY'
+          import json, os, subprocess
+          from pathlib import Path
+          metadata = json.loads(subprocess.check_output(['cargo', 'metadata', '--locked', '--no-deps', '--format-version', '1'], text=True))
+          package = next(item for item in metadata['packages'] if item['name'] == 'lx-gpui-player')
+          enabled = {'default'}
+          pending = ['default']
+          while pending:
+              for feature in package['features'].get(pending.pop(), []):
+                  if feature in package['features'] and feature not in enabled:
+                      enabled.add(feature)
+                      pending.append(feature)
+          selected = []
+          optional = []
+          for target in package['targets']:
+              if 'test' not in target['kind']:
+                  continue
+              missing = set(target.get('required-features', [])) - enabled
+              if missing:
+                  optional.append(dict(name=target['name'], requiredFeatures=sorted(missing)))
+              else:
+                  selected.append(target['name'])
+          assert selected, 'No integration test targets were discovered'
+          root = Path(os.environ['QISHENG_CI_ROOT'])
+          (root / 'evidence' / 'test-targets.json').write_text(json.dumps(dict(features=sorted(enabled), integrationTargets=selected, disabledOptionalTargets=optional), indent=2), encoding='utf-8')
+          command = ['cargo', 'test', '--locked', '--bins']
+          for name in selected:
+              command.extend(['--test', name])
+          command.extend(['--', '--test-threads=1'])
+          with (root / 'evidence' / 'tests-applications.log').open('w', encoding='utf-8') as log:
+              process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding='utf-8', errors='replace')
+              for line in process.stdout:
+                  print(line, end='', flush=True)
+                  log.write(line)
+                  log.flush()
+              code = process.wait()
+          raise SystemExit(code)
+          PY
 
       - name: Build native window smoke executable
         run: |
