@@ -369,18 +369,34 @@ impl AudioPlayer {
     }
 
     pub fn with_transport_options(mode: AudioOutputMode, options: TransportOptions) -> Self {
+        Self::with_transport_options_and_volume(mode, options, PlaybackSnapshot::default().volume)
+    }
+
+    pub(crate) fn with_transport_options_and_volume(
+        mode: AudioOutputMode,
+        options: TransportOptions,
+        volume: f32,
+    ) -> Self {
         let output = match mode {
             AudioOutputMode::Device => OutputMode::Device,
             AudioOutputMode::Memory => {
                 OutputMode::Memory(Arc::new(Mutex::new(RenderedPcm::default())))
             }
         };
-        Self::with_output_options(output, options)
+        Self::with_output_options(output, options, volume)
     }
     fn with_output(output_mode: OutputMode) -> Self {
-        Self::with_output_options(output_mode, TransportOptions::default())
+        Self::with_output_options(
+            output_mode,
+            TransportOptions::default(),
+            PlaybackSnapshot::default().volume,
+        )
     }
-    fn with_output_options(output_mode: OutputMode, options: TransportOptions) -> Self {
+    fn with_output_options(
+        output_mode: OutputMode,
+        options: TransportOptions,
+        volume: f32,
+    ) -> Self {
         let cache = Arc::new(Mutex::new(None));
         let engine_cache = cache.clone();
         let preload = Arc::new(Mutex::new(View::default()));
@@ -389,7 +405,13 @@ impl AudioPlayer {
         let intent_revision = Arc::new(AtomicU64::new(0));
         let device_pause_revision = Arc::new(AtomicU64::new(0));
         let worker_device_pause = device_pause_revision.clone();
-        let snapshot = Arc::new(Mutex::new(PlaybackSnapshot::default()));
+        // The engine and its first published snapshot share the restored gain;
+        // startup must not depend on an asynchronous Volume command being polled.
+        let mut initial_playback = PlaybackSnapshot::default();
+        if volume.is_finite() {
+            initial_playback.volume = volume.clamp(0.0, 1.0);
+        }
+        let snapshot = Arc::new(Mutex::new(initial_playback));
         let worker_snapshot = snapshot.clone();
         let mut initial_output = crate::domain::audio_output::AudioOutputSnapshot::default();
         if matches!(output_mode, OutputMode::Memory(_)) {

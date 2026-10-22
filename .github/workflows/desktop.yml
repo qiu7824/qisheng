@@ -176,7 +176,7 @@ jobs:
           assert selected, 'No integration test targets were discovered'
           root = Path(os.environ['QISHENG_CI_ROOT'])
           (root / 'evidence' / 'test-targets.json').write_text(json.dumps(dict(features=sorted(enabled), integrationTargets=selected, disabledOptionalTargets=optional), indent=2), encoding='utf-8')
-          command = ['cargo', 'test', '--locked', '--bins']
+          command = ['cargo', 'test', '--locked', '--no-fail-fast', '--bins']
           for name in selected:
               command.extend(['--test', name])
           command.extend(['--', '--test-threads=1'])

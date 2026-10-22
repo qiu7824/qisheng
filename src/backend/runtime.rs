@@ -540,12 +540,13 @@ pub(super) fn start_with_guard(
             provider_registry.clone(),
             authority.clone(),
         )?;
-        let audio = AudioPlayer::with_transport_options(
+        let audio = AudioPlayer::with_transport_options_and_volume(
             match config.audio_mode {
                 BackendAudioMode::Device => AudioOutputMode::Device,
                 BackendAudioMode::Memory => AudioOutputMode::Memory,
             },
             transport_options,
+            data.volume,
         );
         let lyric_service = LyricService::with_authority(repository.clone(), authority.clone());
         let initial_core = Runtime {
@@ -717,7 +718,6 @@ pub(super) fn start_with_guard(
             );
             core.reconcile_queue()?;
         }
-        core.audio.set_volume(core.data.volume);
         core.audio
             .set_output_preferences(core.data.audio_preferences.clone())?;
         core.audio.set_equalizer(core.data.equalizer)?;

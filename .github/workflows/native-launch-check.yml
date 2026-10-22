@@ -40,6 +40,10 @@ jobs:
         run: |
           set -o pipefail
           cargo test --locked --bin lx-native instance:: -- --test-threads=1 2>&1 | tee "$RUNNER_TEMP/native-launch.log"
+      - name: Restored playback preferences
+        run: |
+          set -o pipefail
+          cargo test --locked --no-fail-fast --test backend_backup --test backend_native_restore -- --test-threads=1 2>&1 | tee "$QISHENG_CI_ROOT/evidence/restore-tests.log"
       - name: Build native interaction executable
         run: |
           set -o pipefail
