@@ -132,6 +132,11 @@ jobs:
           set -o pipefail
           cargo check --locked --all-targets 2>&1 | tee "$QISHENG_CI_ROOT/evidence/check.log"
 
+      - name: Per-profile native launch forwarding
+        run: |
+          set -o pipefail
+          cargo test --locked --bin lx-native instance:: -- --test-threads=1 2>&1 | tee "$QISHENG_CI_ROOT/evidence/tests-instance.log"
+
       - name: Build process-worker executable for tests
         run: |
           set -o pipefail

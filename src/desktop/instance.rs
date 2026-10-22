@@ -142,6 +142,7 @@ mod unix {
         version: u8,
         instance: String,
         queued: bool,
+        error: Option<String>,
     }
 
     fn private_directory() -> Result<PathBuf> {
@@ -248,6 +249,11 @@ mod unix {
             reply.version == 1 && reply.instance == request.instance,
             "Launch IPC endpoint has another identity"
         );
+        ensure!(
+            reply.queued,
+            "Launch IPC rejected the request: {}",
+            reply.error.as_deref().unwrap_or("No reason supplied")
+        );
         Ok(reply.queued)
     }
     pub(super) fn start(
@@ -303,12 +309,14 @@ mod unix {
             match lock.try_lock() {
                 Ok(()) => break,
                 Err(std::fs::TryLockError::WouldBlock) => {
-                    if forward(&endpoint, &request).unwrap_or(false) {
-                        return Ok(Launch::Forwarded);
-                    }
+                    let reason = match forward(&endpoint, &request) {
+                        Ok(true) => return Ok(Launch::Forwarded),
+                        Ok(false) => "The launch queue is closing".into(),
+                        Err(error) => format!("{error:#}"),
+                    };
                     ensure!(
                         Instant::now() < deadline,
-                        "The existing client is still starting or stopping"
+                        "The existing client is still starting or stopping: {reason}"
                     );
                     thread::sleep(Duration::from_millis(50));
                 }
@@ -393,7 +401,7 @@ mod unix {
                         let Ok((mut stream, _)) = listener.accept() else {
                             continue;
                         };
-                        let queued = (|| -> Result<()> {
+                        let accepted = (|| -> Result<()> {
                             stream.set_nonblocking(false)?;
                             peer_is_current_user(&stream)?;
                             let request: Request = read_frame(&mut stream)?;
@@ -413,14 +421,16 @@ mod unix {
                                 request.paths.into_iter().map(PathBuf::from).collect(),
                                 &wake,
                             )
-                        })()
-                        .is_ok();
+                        })();
                         let _ = write_frame(
                             &mut stream,
                             &Reply {
                                 version: 1,
                                 instance: instance.clone(),
-                                queued,
+                                queued: accepted.is_ok(),
+                                error: accepted
+                                    .err()
+                                    .map(|error| format!("{error:#}").chars().take(512).collect()),
                             },
                         );
                     }
