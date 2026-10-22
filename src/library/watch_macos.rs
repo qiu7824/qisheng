@@ -2,7 +2,7 @@
 use super::*;
 use crate::library::authority::{AuthorizedDirectory, RootAuthority};
 use anyhow::Context as _;
-use notify::event::{ModifyKind, RenameMode};
+use notify::event::{CreateKind, ModifyKind, RemoveKind, RenameMode};
 use notify::{Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 use std::os::unix::{ffi::OsStrExt, fs::MetadataExt, io::AsRawFd};
 use std::time::Instant;
@@ -114,6 +114,12 @@ fn prepare(
 
 fn emit(context: &Context, event: Event, output: &mut Output) {
     let mut full = event.need_rescan() || matches!(event.kind, EventKind::Any | EventKind::Other);
+    let is_directory = match event.kind {
+        EventKind::Create(CreateKind::Folder) | EventKind::Remove(RemoveKind::Folder) => Some(true),
+        EventKind::Create(CreateKind::File) | EventKind::Remove(RemoveKind::File) => Some(false),
+        _ => None,
+    };
+    full |= is_directory == Some(true);
     let mut hints = Vec::new();
     for (index, path) in event.paths.iter().enumerate() {
         let Ok(relative) = path.strip_prefix(&context.path) else {
@@ -153,7 +159,7 @@ fn emit(context: &Context, event: Event, output: &mut Output) {
         hints.push(NativeWatchHint {
             path: relative.to_path_buf(),
             kind,
-            is_directory: None,
+            is_directory,
             rename_cookie: None,
         });
     }
@@ -282,6 +288,10 @@ pub(super) fn run(
                         if context.token.options.root_move_policy
                             == crate::domain::library_watch::RootMovePolicy::Pause
                         {
+                            context.dirty.fail(&LibraryError::new(
+                                LibraryErrorKind::Unavailable,
+                                "Native watch root moved",
+                            ));
                             retired.push(key.clone());
                         } else {
                             let rebound = context.watcher.unwatch(&context.path).and_then(|()| {
@@ -441,6 +451,32 @@ mod tests {
             assert!(
                 Instant::now() < deadline,
                 "Revoked native watch remained live"
+            );
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        let dirty = watch.dirty(&token.root_id, 1).unwrap();
+        assert!(dirty.full_rescan_required && dirty.error.is_some());
+        assert!(watch.shutdown(Duration::from_secs(5)).unwrap());
+    }
+    #[test]
+    fn moved_root_reports_its_same_object_location_and_pauses() {
+        let folder = tempfile::tempdir().unwrap();
+        let original = folder.path().join("original");
+        let renamed = folder.path().join("renamed");
+        std::fs::create_dir(&original).unwrap();
+        let (_registry, mut watch, token) = start(&original);
+        std::fs::rename(&original, &renamed).unwrap();
+        loop {
+            if let NativeWatchEvent::RootMoved { current_path, .. } = next(&mut watch) {
+                assert_eq!(current_path, std::fs::canonicalize(&renamed).unwrap());
+                break;
+            }
+        }
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while watch.shared.context_count.load(Ordering::Acquire) != 0 {
+            assert!(
+                Instant::now() < deadline,
+                "Moved root retained an active native watcher"
             );
             std::thread::sleep(Duration::from_millis(10));
         }
