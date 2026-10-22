@@ -1,4 +1,4 @@
-name: Native launch regression
+name: Native desktop regression
 on:
   workflow_dispatch:
 permissions:
@@ -16,6 +16,8 @@ jobs:
       CARGO_PROFILE_DEV_DEBUG: '0'
       CARGO_PROFILE_TEST_DEBUG: '0'
       MACOSX_DEPLOYMENT_TARGET: '15.0'
+      QISHENG_BINARY_DIRECTORY: debug
+      PYTHONUTF8: '1'
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
@@ -25,6 +27,8 @@ jobs:
           rustup toolchain install 1.99.0 --profile minimal
           rustup override set 1.99.0
           echo "CARGO_TARGET_DIR=$RUNNER_TEMP/qisheng-target" >> "$GITHUB_ENV"
+          echo "QISHENG_CI_ROOT=$RUNNER_TEMP/qisheng-native-regression" >> "$GITHUB_ENV"
+          mkdir -p "$RUNNER_TEMP/qisheng-native-regression/evidence" "$RUNNER_TEMP/qisheng-native-regression/temp"
       - uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830
         with:
           path: ${{ runner.temp }}/qisheng-target
@@ -36,10 +40,18 @@ jobs:
         run: |
           set -o pipefail
           cargo test --locked --bin lx-native instance:: -- --test-threads=1 2>&1 | tee "$RUNNER_TEMP/native-launch.log"
+      - name: Build native interaction executable
+        run: |
+          set -o pipefail
+          cargo build --locked --profile test --features smoke --bin lx-native 2>&1 | tee "$QISHENG_CI_ROOT/evidence/interaction-build.log"
+      - name: Native window lifecycle and file panels
+        run: python3 .github/scripts/native_smoke.py
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
         with:
           name: Native-launch-${{ github.sha }}
-          path: ${{ runner.temp }}/native-launch.log
+          path: |
+            ${{ runner.temp }}/native-launch.log
+            ${{ runner.temp }}/qisheng-native-regression/evidence/*
           retention-days: 7
           if-no-files-found: warn

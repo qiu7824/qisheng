@@ -196,75 +196,7 @@ jobs:
           cargo build --locked --release --features smoke --bin lx-native 2>&1 | tee "$QISHENG_CI_ROOT/evidence/smoke-build.log"
 
       - name: Real native window and isolated profile smoke
-        run: |
-          python - <<'PY'
-          import os, platform, subprocess
-          from pathlib import Path
-          root = Path(os.environ['QISHENG_CI_ROOT'])
-          script = root / 'temp' / 'native-smoke.py'
-          script.write_text(r'''import json, os, platform, sqlite3, subprocess, time, wave
-          from pathlib import Path
-          root = Path(os.environ['QISHENG_CI_ROOT'])
-          executable = Path(os.environ['CARGO_TARGET_DIR']) / 'release' / ('lx-native.exe' if os.name == 'nt' else 'lx-native')
-          evidence = root / 'evidence'
-          profile = root / 'temp' / '窗口恢复 中文配置'
-          screenshot = evidence / 'native-window.png'
-          fixture = root / 'temp' / '导入测试 含空格.wav'
-          with wave.open(str(fixture), 'wb') as audio:
-              audio.setnchannels(1)
-              audio.setsampwidth(2)
-              audio.setframerate(44100)
-              audio.writeframes(b'\0\0' * 44100)
-          manager = None
-          primary = None
-          with (evidence / 'window-manager.log').open('wb') as manager_log, (evidence / 'native-window.log').open('wb') as log:
-              try:
-                  if platform.system() == 'Linux':
-                      manager = subprocess.Popen(['openbox', '--sm-disable'], stdout=manager_log, stderr=subprocess.STDOUT)
-                      time.sleep(1)
-                      assert manager.poll() is None, 'Window manager did not start'
-                  command = [str(executable), '--data-dir', str(profile), '--audio', 'memory', '--instance-smoke', '--smoke-close', '--smoke', str(screenshot), '--smoke-ms', '8000']
-                  if platform.system() == 'Darwin':
-                      os.environ['ZSUI_NATIVE_OWNER_FILE_DIALOG_PROOF_DIR'] = str(evidence)
-                      command.append('--smoke-pickers')
-                  primary = subprocess.Popen(command, stdout=log, stderr=subprocess.STDOUT)
-                  deadline = time.monotonic() + 6
-                  while not screenshot.with_suffix('.closed.json').is_file():
-                      assert primary.poll() is None, 'Primary window exited before launch forwarding'
-                      assert time.monotonic() < deadline, 'Native close was not acknowledged'
-                      time.sleep(0.05)
-                  forwarded = subprocess.run([str(executable), '--data-dir', str(profile), '--audio', 'memory', str(fixture)], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=20)
-                  (evidence / 'second-launch.log').write_bytes(forwarded.stdout)
-                  assert forwarded.returncode == 0, forwarded.stdout.decode(errors='replace')[-3000:]
-                  assert primary.wait(timeout=90) == 0, 'Native window failed; see native-window.log'
-              finally:
-                  for process in [primary, manager]:
-                      if process is not None and process.poll() is None:
-                          process.terminate()
-                          try:
-                              process.wait(timeout=5)
-                          except subprocess.TimeoutExpired:
-                              process.kill()
-                              process.wait()
-          assert screenshot.exists() and screenshot.stat().st_size > 1024, 'Native screenshot missing'
-          interaction = json.loads(screenshot.with_suffix('.interaction.json').read_text(encoding='utf-8'))
-          assert interaction['relaunches_handled'] > 0, 'Second launch did not reach the UI thread'
-          assert interaction['background_closes'] > 0, 'Native background close did not retain the window'
-          database = profile / 'native-library.sqlite3'
-          assert database.is_file(), 'Profile database was not created'
-          with sqlite3.connect(database.as_uri() + '?mode=ro', uri=True) as connection:
-              count = connection.execute('SELECT count(*) FROM local_assets').fetchone()[0]
-          assert count == 1, ('Forwarded file was not imported', count)
-          if platform.system() == 'Darwin':
-              for name in ['notepad-owner-open-panel.png', 'folder-owner-panel.png']:
-                  assert (evidence / name).is_file() and (evidence / name).stat().st_size > 1024, ('Native picker screenshot missing', name)
-          (evidence / 'native-smoke-result.json').write_text(json.dumps(dict(window='passed', backgroundClose='passed', secondLaunch='passed', unicodeFileImport='passed', importedAssets=count), indent=2), encoding='utf-8')
-          ''', encoding='utf-8')
-          command = ['python', str(script)]
-          if platform.system() == 'Linux':
-              command = ['dbus-run-session', '--', 'xvfb-run', '-a', '-s', '-screen 0 1440x1000x24'] + command
-          subprocess.run(command, check=True, timeout=130)
-          PY
+        run: python .github/scripts/native_smoke.py
 
       - name: Build production executables
         run: |
@@ -274,7 +206,7 @@ jobs:
       - name: Package native applications
         run: |
           python - <<'PY'
-          import hashlib, json, os, platform, plistlib, shutil, subprocess, tarfile, tomllib, zipfile
+          import hashlib, json, os, platform, plistlib, shutil, signal, subprocess, tarfile, time, tomllib, zipfile
           from pathlib import Path
           source = Path.cwd()
           root = Path(os.environ['QISHENG_CI_ROOT'])
@@ -394,10 +326,32 @@ jobs:
                   checked = directory / relative
                   checked.resolve().relative_to(directory.resolve())
                   assert hashlib.sha256(checked.read_bytes()).hexdigest() == expected, relative
+              if index == 0:
+                  relative_app = Path('栖声.app/Contents/MacOS/qisheng') if system == 'Darwin' else Path('栖声.exe' if system == 'Windows' else 'qisheng')
+                  profile = root / 'temp' / '生产界面启动验证'
+                  command = [str(directory / relative_app), '--data-dir', str(profile), '--audio', 'memory']
+                  if system == 'Linux':
+                      command = ['dbus-run-session', '--', 'xvfb-run', '-a'] + command
+                  with (root / 'evidence' / 'production-window.log').open('wb') as log:
+                      process = subprocess.Popen(command, stdout=log, stderr=subprocess.STDOUT, start_new_session=(system != 'Windows'))
+                      try:
+                          time.sleep(3)
+                          assert process.poll() is None, 'Packaged production frontend exited during startup'
+                          assert (profile / 'native-library.sqlite3').is_file(), 'Packaged frontend did not initialize its isolated profile'
+                      finally:
+                          if process.poll() is None:
+                              if system == 'Windows':
+                                  process.terminate()
+                              else:
+                                  os.killpg(process.pid, signal.SIGTERM)
+                              process.wait(timeout=10)
+                  result = subprocess.run([str(directory / relative_cli), '--data-dir', str(profile), 'status'], capture_output=True, timeout=45)
+                  (root / 'evidence' / 'production-profile-reopen.log').write_bytes(result.stdout + result.stderr)
+                  assert result.returncode == 0, 'The production profile could not be reopened after the startup test'
               result = subprocess.run([str(directory / relative_cli), '--data-dir', str(root / 'temp' / ('归档验证-' + str(index))), 'status'], capture_output=True, timeout=45)
               (root / 'evidence' / ('archive-cli-' + str(index) + '.log')).write_bytes(result.stdout + result.stderr)
               assert result.returncode == 0, result.stderr.decode(errors='replace')[-3000:]
-              verified.append(dict(directory=directory.name, checksum='passed', cli='passed'))
+              verified.append(dict(directory=directory.name, checksum='passed', cli='passed', productionFrontendStartup='passed' if index == 0 else 'same executable verified by checksum'))
           (root / 'evidence' / 'archive-verification.json').write_text(json.dumps(verified, indent=2), encoding='utf-8')
           (packages / 'SHA256SUMS.txt').write_text(''.join(hashlib.sha256(path.read_bytes()).hexdigest() + '  ' + path.name + '\n' for path in sorted(packages.iterdir()) if path.is_file()), encoding='utf-8')
           PY
