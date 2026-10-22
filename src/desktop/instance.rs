@@ -209,8 +209,10 @@ mod unix {
             let remaining = deadline
                 .checked_duration_since(Instant::now())
                 .context("Launch IPC deadline expired")?;
-            stream.set_read_timeout(Some(remaining.max(Duration::from_millis(1))))?;
-            let count = stream.read(bytes)?;
+            stream
+                .set_read_timeout(Some(remaining.max(Duration::from_millis(1))))
+                .context("Setting the launch read deadline")?;
+            let count = stream.read(bytes).context("Reading the launch frame")?;
             ensure!(count > 0, "Launch IPC frame is incomplete");
             bytes = &mut bytes[count..];
         }
@@ -235,13 +237,19 @@ mod unix {
             bytes.len() <= MAX_FRAME,
             "Launch IPC frame exceeds its bound"
         );
-        stream.set_write_timeout(Some(Duration::from_secs(1)))?;
-        stream.write_all(&(bytes.len() as u32).to_be_bytes())?;
-        stream.write_all(&bytes)?;
+        stream
+            .set_write_timeout(Some(Duration::from_secs(1)))
+            .context("Setting the launch write deadline")?;
+        stream
+            .write_all(&(bytes.len() as u32).to_be_bytes())
+            .context("Writing the launch frame length")?;
+        stream
+            .write_all(&bytes)
+            .context("Writing the launch frame body")?;
         Ok(())
     }
     fn forward(path: &Path, request: &Request) -> Result<bool> {
-        let mut stream = UnixStream::connect(path)?;
+        let mut stream = UnixStream::connect(path).context("Connecting to the launch endpoint")?;
         peer_is_current_user(&stream)?;
         write_frame(&mut stream, request)?;
         let reply: Reply = read_frame(&mut stream)?;

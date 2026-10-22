@@ -360,7 +360,7 @@ jobs:
               icons = deb / 'usr/share/icons/hicolor/scalable/apps'
               icons.mkdir(parents=True)
               shutil.copy2(source / 'assets/qisheng.svg', icons / 'qisheng.svg')
-              depends = 'libc6, libasound2t64, libcairo2, libpango-1.0-0, libpangocairo-1.0-0, libfontconfig1, libxkbcommon0, libwayland-client0, libx11-6, libxcursor1, libxi6, libxrandr2, libxfixes3, libxext6, libgl1, libegl1, fonts-noto-cjk'
+              depends = 'libc6, libasound2t64, libcairo2, libpango-1.0-0, libpangocairo-1.0-0, libfontconfig1, libxkbcommon0, libwayland-client0, libx11-6, libxcursor1, libxi6, libxrandr2, libxfixes3, libxext6, libgl1, libegl1, fonts-noto-cjk, xdg-desktop-portal, xdg-desktop-portal-gtk | xdg-desktop-portal-kde, zenity'
               (deb / 'DEBIAN/control').write_text('Package: qisheng\nVersion: ' + version.replace('-', '~', 1) + '\nArchitecture: amd64\nMaintainer: Qisheng <30194382+qiu7824@users.noreply.github.com>\nSection: sound\nPriority: optional\nDepends: ' + depends + '\nDescription: Qisheng native desktop music player\n Native music library, playback and synchronized lyrics.\n', encoding='utf-8')
               debfile = packages / (name + '.deb')
               subprocess.run(['dpkg-deb', '--root-owner-group', '--build', str(deb), str(debfile)], check=True)
