@@ -124,8 +124,10 @@ jobs:
         uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: ${{ runner.temp }}/qisheng-target
-          key: qisheng-native-${{ matrix.target }}-rust-1.99.0-${{ hashFiles('Cargo.lock', '.cargo/config.toml') }}
-          restore-keys: qisheng-native-${{ matrix.target }}-rust-1.99.0-
+          key: qisheng-native-${{ matrix.target }}-rust-1.99.0-${{ hashFiles('Cargo.lock', '.cargo/config.toml') }}-${{ github.sha }}
+          restore-keys: |
+            qisheng-native-${{ matrix.target }}-rust-1.99.0-${{ hashFiles('Cargo.lock', '.cargo/config.toml') }}
+            qisheng-native-${{ matrix.target }}-rust-1.99.0-
 
       - name: Native compilation of every test target
         run: |
