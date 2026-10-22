@@ -200,25 +200,61 @@ mod unix {
         }
         Ok(())
     }
+    fn wait_socket(stream: &UnixStream, event: i16, deadline: Instant) -> Result<()> {
+        loop {
+            let remaining = deadline
+                .checked_duration_since(Instant::now())
+                .context("Launch IPC deadline expired")?;
+            let milliseconds = remaining
+                .as_millis()
+                .saturating_add(1)
+                .min(i32::MAX as u128) as i32;
+            let mut ready = libc::pollfd {
+                fd: stream.as_raw_fd(),
+                events: event,
+                revents: 0,
+            };
+            let result = unsafe { libc::poll(&mut ready, 1, milliseconds) };
+            if result < 0 {
+                let error = std::io::Error::last_os_error();
+                if error.kind() == std::io::ErrorKind::Interrupted {
+                    continue;
+                }
+                return Err(error).context("Waiting for the launch socket");
+            }
+            if result == 0 {
+                continue;
+            }
+            ensure!(
+                ready.revents & libc::POLLNVAL == 0,
+                "Launch socket is no longer valid"
+            );
+            return Ok(());
+        }
+    }
     fn read_exact_until(
         stream: &mut UnixStream,
         mut bytes: &mut [u8],
         deadline: Instant,
     ) -> Result<()> {
         while !bytes.is_empty() {
-            let remaining = deadline
-                .checked_duration_since(Instant::now())
-                .context("Launch IPC deadline expired")?;
-            stream
-                .set_read_timeout(Some(remaining.max(Duration::from_millis(1))))
-                .context("Setting the launch read deadline")?;
-            let count = stream.read(bytes).context("Reading the launch frame")?;
+            ensure!(Instant::now() < deadline, "Launch IPC deadline expired");
+            let count = match stream.read(bytes) {
+                Ok(count) => count,
+                Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
+                Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                    wait_socket(stream, libc::POLLIN, deadline)?;
+                    continue;
+                }
+                Err(error) => return Err(error).context("Reading the launch frame"),
+            };
             ensure!(count > 0, "Launch IPC frame is incomplete");
             bytes = &mut bytes[count..];
         }
         Ok(())
     }
     fn read_frame<T: serde::de::DeserializeOwned>(stream: &mut UnixStream) -> Result<T> {
+        stream.set_nonblocking(true)?;
         let deadline = Instant::now() + Duration::from_secs(2);
         let mut header = [0u8; 4];
         read_exact_until(stream, &mut header, deadline)?;
@@ -237,15 +273,26 @@ mod unix {
             bytes.len() <= MAX_FRAME,
             "Launch IPC frame exceeds its bound"
         );
-        stream
-            .set_write_timeout(Some(Duration::from_secs(1)))
-            .context("Setting the launch write deadline")?;
-        stream
-            .write_all(&(bytes.len() as u32).to_be_bytes())
-            .context("Writing the launch frame length")?;
-        stream
-            .write_all(&bytes)
-            .context("Writing the launch frame body")?;
+        stream.set_nonblocking(true)?;
+        let deadline = Instant::now() + Duration::from_secs(1);
+        let header = (bytes.len() as u32).to_be_bytes();
+        for mut remaining in [&header[..], &bytes[..]] {
+            while !remaining.is_empty() {
+                ensure!(
+                    Instant::now() < deadline,
+                    "Launch IPC write deadline expired"
+                );
+                match stream.write(remaining) {
+                    Ok(0) => anyhow::bail!("Launch IPC closed during a write"),
+                    Ok(count) => remaining = &remaining[count..],
+                    Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
+                    Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                        wait_socket(stream, libc::POLLOUT, deadline)?;
+                    }
+                    Err(error) => return Err(error).context("Writing the launch frame"),
+                }
+            }
+        }
         Ok(())
     }
     fn forward(path: &Path, request: &Request) -> Result<bool> {
@@ -410,7 +457,7 @@ mod unix {
                             continue;
                         };
                         let accepted = (|| -> Result<()> {
-                            stream.set_nonblocking(false)?;
+                            stream.set_nonblocking(true)?;
                             peer_is_current_user(&stream)?;
                             let request: Request = read_frame(&mut stream)?;
                             ensure!(
@@ -523,6 +570,20 @@ mod unix {
                 .write_all(&((MAX_FRAME + 1) as u32).to_be_bytes())
                 .unwrap();
             assert!(read_frame::<Request>(&mut receiver).is_err());
+        }
+        #[test]
+        fn a_silent_peer_cannot_extend_the_read_deadline() {
+            let (_sender, mut receiver) = UnixStream::pair().unwrap();
+            receiver.set_nonblocking(true).unwrap();
+            let started = Instant::now();
+            let error = read_exact_until(
+                &mut receiver,
+                &mut [0u8; 4],
+                started + Duration::from_millis(50),
+            )
+            .unwrap_err();
+            assert!(error.to_string().contains("deadline expired"));
+            assert!(started.elapsed() < Duration::from_secs(1));
         }
     }
 }
