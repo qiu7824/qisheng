@@ -32,7 +32,7 @@ jobs:
           import json, os
           targets = [
               dict(os='windows', runner='windows-2025', target='x86_64-pc-windows-msvc', label='Windows-x64', jobs=2),
-              dict(os='macos', runner='macos-15', target='aarch64-apple-darwin', label='macOS-arm64', jobs=1),
+              dict(os='macos', runner='macos-15', target='aarch64-apple-darwin', label='macOS-arm64', jobs=2),
               dict(os='macos', runner='macos-15-intel', target='x86_64-apple-darwin', label='macOS-x64', jobs=2),
               dict(os='linux', runner='ubuntu-24.04', target='x86_64-unknown-linux-gnu', label='Linux-x64', jobs=2),
           ]
@@ -125,6 +125,7 @@ jobs:
         with:
           path: ${{ runner.temp }}/qisheng-target
           key: qisheng-native-${{ matrix.target }}-rust-1.99.0-${{ hashFiles('Cargo.lock', '.cargo/config.toml') }}
+          restore-keys: qisheng-native-${{ matrix.target }}-rust-1.99.0-
 
       - name: Native compilation of every test target
         run: |

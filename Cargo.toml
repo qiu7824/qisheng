@@ -1,9 +1,9 @@
 [package]
 name = "lx-gpui-player"
-version = "0.3.0-alpha.19"
+version = "0.3.0-alpha.20"
 edition = "2024"
 license = "Apache-2.0"
-description = "A native GPUI music player with a bounded LX custom-source runtime"
+description = "A native ZSUI music player with a bounded LX custom-source runtime"
 
 [features]
 default = ["desktop"]

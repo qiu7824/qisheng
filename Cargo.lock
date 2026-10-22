@@ -4555,7 +4555,7 @@ dependencies = [
 
 [[package]]
 name = "lx-gpui-player"
-version = "0.3.0-alpha.19"
+version = "0.3.0-alpha.20"
 dependencies = [
  "aes",
  "anyhow",

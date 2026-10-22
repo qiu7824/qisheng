@@ -1,14 +1,14 @@
-# LX Native · 开发源码
+# 栖声 · 桌面客户端
 
-LX Native 是 Rust 音乐播放器工程，提供独立后端、JSON CLI 和 ZSUI 桌面界面。后端可以使用 `--no-default-features` 独立构建和运行；桌面界面通过适配层使用同一命令、状态和持久化服务。GPUI Kit 界面保留在可选的 `ui` feature。
+栖声是 Rust 音乐播放器工程，提供独立后端、JSON CLI 和 ZSUI 桌面界面。后端可以使用 `--no-default-features` 独立构建和运行；桌面界面通过适配层使用同一命令、状态和持久化服务。GPUI Kit 界面保留在可选的 `ui` feature。Windows x64、macOS arm64/x64、Linux x64 的原生构建、测试与打包规则见[三平台交付设计](docs/cross-platform-delivery.md)。
 
-当前源码版本为 **0.3.0-alpha.15**，SQLite schema 为 **17**。可用服务包括本地曲库目录授权/后台扫描、受控 LX 自定义源、四轨歌词、五平台 SDK、事务列表/收藏/不喜欢规则/搜索历史、持久五模式队列，设备选择/热切换/静音、十段均衡器、倍速保调与独立移调，以及按块传输、独立解码和预加载的播放链路。在线 SDK 结果可以显式保存到列表，从该列表独立副本经已批准源解析 URL、音频 URL 审批、Memory/Device 播放路由及内置在线歌词服务。
+当前源码版本为 **0.3.0-alpha.20**，SQLite schema 为 **17**。可用服务包括本地曲库目录授权/后台扫描、受控 LX 自定义源、四轨歌词、五平台 SDK、事务列表/收藏/不喜欢规则/搜索历史、持久五模式队列，设备选择/热切换/静音、十段均衡器、倍速保调与独立移调，以及按块传输、独立解码和预加载的播放链路。在线 SDK 结果可以显式保存到列表，从该列表独立副本经已批准源解析 URL、音频 URL 审批、Memory/Device 播放路由及内置在线歌词服务。
 
 M05 尚未全部完成：跨平台匹配、真实候选换源和持久URL信息缓存已接入；持久图片缓存、跨播放/冷启动编码音频复用及有限HTTP恢复已接入；本地跨平台匹配、其他错误恢复分支和完整服务联测仍待完成。目录监听、重定位、持久下载、原生逻辑备份、v4 同步、OpenAPI 与系统控制已有后端执行链路；独立批准的 MP3/FLAC 标签编辑、实际资源退休及七个命令和四个查询见[标签 API](docs/backend-tag-edit-api.md)。标签完整冷恢复、下载覆盖与成品播放、完整物理恢复交接、音效偏好及实机与互通验收仍待完成。能力边界见 [后端状态](docs/backend-status.md)与[五平台 SDK 状态](docs/sdk-status.md)；完整工作分解见 [后端移植规划](docs/backend-port-plan.md)。
 
 [桌面 EXE](bin/lx-gpui-player.exe)、`delivery/LX-Native-0.2.0-source.zip` 和 `delivery/LX-Native-0.2.0-Windows-x64.zip` 是保存的 0.2.0 发行产物。以下构建命令和后端说明对应当前源码；旧包的验证记录见 [验收记录](docs/validation.md)。
 
-最新后端产物为 [CLI 0.3.0-alpha.14](bin/lx-native-cli-0.3.0-alpha.14.exe)，对应 schema 16；[alpha.14 检查点](docs/backend-checkpoint-alpha14.md)记录严格 Clippy、338 项库测试通过及一项缓存供给性能失败、60 项集成测试通过。标签编辑与实际退休具有完整正常执行链路，剩余冷恢复窗口保持 pending。历史记录为 [alpha.13](docs/backend-checkpoint-alpha13.md)、[alpha.12](docs/backend-checkpoint-alpha12.md)与[alpha.11](docs/backend-checkpoint-alpha11.md)；其范围不作为 alpha.14 的完整发行验收。[匹配与URL缓存接口](docs/media-resolution.md)、[编码复用](docs/encoded-reuse.md)及[图片接口](docs/artwork-cache.md)记录独立授权与限额。其他历史记录保留为[alpha.10](docs/backend-checkpoint-alpha10.md)、[alpha.9](docs/backend-checkpoint-alpha9.md)、[alpha.8](docs/backend-checkpoint-alpha8.md)、[alpha.7](docs/backend-checkpoint-alpha7.md)、[alpha.6](docs/backend-checkpoint-alpha6.md)、[alpha.5](docs/backend-checkpoint-alpha5.md)、[alpha.1](docs/backend-checkpoint.md)、[alpha.2](docs/backend-checkpoint-alpha2.md)与[alpha.3](docs/backend-checkpoint-alpha3.md)。
+历史后端产物 [CLI 0.3.0-alpha.14](bin/lx-native-cli-0.3.0-alpha.14.exe)，对应 schema 16；[alpha.14 检查点](docs/backend-checkpoint-alpha14.md)记录严格 Clippy、338 项库测试通过及一项缓存供给性能失败、60 项集成测试通过。标签编辑与实际退休具有完整正常执行链路，剩余冷恢复窗口保持 pending。历史记录为 [alpha.13](docs/backend-checkpoint-alpha13.md)、[alpha.12](docs/backend-checkpoint-alpha12.md)与[alpha.11](docs/backend-checkpoint-alpha11.md)；其范围不作为 alpha.14 的完整发行验收。[匹配与URL缓存接口](docs/media-resolution.md)、[编码复用](docs/encoded-reuse.md)及[图片接口](docs/artwork-cache.md)记录独立授权与限额。其他历史记录保留为[alpha.10](docs/backend-checkpoint-alpha10.md)、[alpha.9](docs/backend-checkpoint-alpha9.md)、[alpha.8](docs/backend-checkpoint-alpha8.md)、[alpha.7](docs/backend-checkpoint-alpha7.md)、[alpha.6](docs/backend-checkpoint-alpha6.md)、[alpha.5](docs/backend-checkpoint-alpha5.md)、[alpha.1](docs/backend-checkpoint.md)、[alpha.2](docs/backend-checkpoint-alpha2.md)与[alpha.3](docs/backend-checkpoint-alpha3.md)。
 
 [后端 CLI 0.3.0-alpha.1](bin/lx-native-cli-0.3.0-alpha.1.exe) 保留本地数据、播放和歌词服务，默认使用 Memory 音频模式，验证范围见[schema 3 检查点](docs/backend-checkpoint.md)。
 
