@@ -4,7 +4,7 @@ fn context() -> PhysicalRestoreContext {
     PhysicalRestoreContext::new(Duration::from_secs(30)).unwrap()
 }
 fn operation_folder() -> tempfile::TempDir {
-    tempfile::tempdir_in(r"E:\codex操作目录\tasks\lx-gpui-player\test-temp").unwrap()
+    tempfile::tempdir_in(std::env::temp_dir()).unwrap()
 }
 #[test]
 #[ignore = "Real process-exit helper invoked by terminal cold matrix"]

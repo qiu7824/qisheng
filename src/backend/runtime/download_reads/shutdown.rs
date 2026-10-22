@@ -424,7 +424,8 @@ mod tests {
     }
     impl Case {
         fn new() -> Self {
-            let root = Path::new(r"E:\codex操作目录\tasks\lx-gpui-player\test-fixtures");
+            let temporary_root = std::env::temp_dir().join("lx-native-fixtures");
+            let root = temporary_root.as_path();
             std::fs::create_dir_all(root).unwrap();
             let directory = tempfile::Builder::new()
                 .prefix("download-read-shutdown-")

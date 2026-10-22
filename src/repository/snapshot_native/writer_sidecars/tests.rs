@@ -41,7 +41,7 @@ fn fixture() -> (
     Arc<NativeSidecarJournal>,
 ) {
     let directory =
-        tempfile::tempdir_in(r"E:\codex操作目录\tasks\lx-gpui-player\test-temp").unwrap();
+        tempfile::tempdir_in(std::env::temp_dir()).unwrap();
     let database = directory.path().join("native-library.sqlite3");
     let connection = Connection::open(&database).unwrap();
     connection
@@ -423,7 +423,7 @@ fn legacy_cold_crash_child() {
         return;
     };
     let profile = std::path::PathBuf::from(profile);
-    assert!(profile.starts_with(r"E:\codex操作目录\tasks\lx-gpui-player\test-temp"));
+    assert!(profile.starts_with(std::env::temp_dir()));
     let connection = Connection::open(profile.join("native-library.sqlite3")).unwrap();
     connection.execute_batch("PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL; PRAGMA wal_autocheckpoint=0; CREATE TABLE payload(value TEXT); INSERT INTO payload VALUES('committed-before-real-process-exit');").unwrap();
     // The OS terminates actual default SQLite handles without its normal close
@@ -434,7 +434,7 @@ fn legacy_cold_crash_child() {
 #[test]
 fn locked_legacy_cold_open_replays_committed_wal_then_retires_original_sidecar_fids() {
     let directory =
-        tempfile::tempdir_in(r"E:\codex操作目录\tasks\lx-gpui-player\test-temp").unwrap();
+        tempfile::tempdir_in(std::env::temp_dir()).unwrap();
     let status = std::process::Command::new(std::env::current_exe().unwrap())
         .args([
             "--exact",

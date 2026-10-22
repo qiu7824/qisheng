@@ -1639,24 +1639,80 @@ pub(super) fn close_retained_leaf_grant(
     inner.parent.take();
     Ok(())
 }
-#[cfg(not(windows))]
+#[cfg(unix)]
+pub(super) fn close_retained_leaf_grant(
+    grant: &mut DestinationGrant,
+    parent_receiver: Option<&DestinationGrant>,
+) -> Result<()> {
+    let inner = Arc::get_mut(&mut grant.0)
+        .context("Destination leaf still has outstanding strong borrows")?;
+    match (&inner.parent, parent_receiver) {
+        (None, None) => {}
+        (Some(parent), Some(receiver)) => ensure!(
+            parent.same_native_owner(receiver),
+            "Destination parent receiver differs from its native owner"
+        ),
+        _ => bail!("Destination parent native pins have no matching receiver"),
+    }
+    inner.pins.clear();
+    inner.identities.clear();
+    inner.parent.take();
+    Ok(())
+}
+#[cfg(unix)]
+pub(super) fn close_retained_unique_grant(grant: &mut DestinationGrant) -> Result<()> {
+    let mut current = &*grant;
+    loop {
+        ensure!(
+            Arc::strong_count(&current.0) == 1,
+            "Destination native pins still have an outstanding strong borrow"
+        );
+        let Some(parent) = &current.0.parent else {
+            break;
+        };
+        current = parent;
+    }
+    close_sole_owned_grant(grant)
+}
+#[cfg(unix)]
+fn close_sole_owned_grant(grant: &mut DestinationGrant) -> Result<()> {
+    let Some(inner) = Arc::get_mut(&mut grant.0) else {
+        return Ok(());
+    };
+    inner.pins.clear();
+    inner.identities.clear();
+    if let Some(parent) = &mut inner.parent {
+        close_sole_owned_grant(parent)?;
+    }
+    Ok(())
+}
+#[cfg(unix)]
+fn close_native_in_place(state: &mut NativeState) -> Result<()> {
+    if let Some(file) = &state.file {
+        file.sync_all()?;
+    }
+    drop(state.file.take());
+    Ok(())
+}
+
+#[cfg(not(any(windows, unix)))]
 pub(super) fn close_retained_leaf_grant(
     _: &mut DestinationGrant,
     _: Option<&DestinationGrant>,
 ) -> Result<()> {
     bail!("UnsupportedCapability: checked native leaf retirement requires Windows")
 }
-#[cfg(not(windows))]
+#[cfg(not(any(windows, unix)))]
 pub(super) fn close_retained_unique_grant(_: &mut DestinationGrant) -> Result<()> {
     bail!("UnsupportedCapability: checked unique destination retirement requires Windows")
 }
 
-#[cfg(not(windows))]
+#[cfg(not(any(windows, unix)))]
 fn close_sole_owned_grant(_: &mut DestinationGrant) -> Result<()> {
     bail!("UnsupportedCapability: checked grant retirement requires Windows")
 }
 
-#[cfg(not(windows))]
+#[cfg(not(any(windows, unix)))]
 fn close_native_in_place(_: &mut NativeState) -> Result<()> {
     bail!("UnsupportedCapability: checked native producer close requires Windows")
 }

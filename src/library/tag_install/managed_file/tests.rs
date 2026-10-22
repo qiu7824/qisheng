@@ -131,7 +131,8 @@ impl TagInstallCoordinator for Coordinator {
 
 #[test]
 fn managed_m06_allocation_uses_same_empty_handle_and_preserves_failed_close_owner() {
-    let root = Path::new(r"E:\codex操作目录\tasks\lx-gpui-player\fixtures");
+    let temporary_root = std::env::temp_dir().join("lx-native-fixtures");
+    let root = temporary_root.as_path();
     std::fs::create_dir_all(root).unwrap();
     let directory = tempfile::Builder::new()
         .prefix("m06-managed-")
@@ -234,7 +235,8 @@ fn managed_m06_allocation_uses_same_empty_handle_and_preserves_failed_close_owne
 
 #[test]
 fn managed_m06_failed_zero_ack_retries_same_retained_handle_after_real_join() {
-    let root = Path::new(r"E:\codex操作目录\tasks\lx-gpui-player\fixtures");
+    let temporary_root = std::env::temp_dir().join("lx-native-fixtures");
+    let root = temporary_root.as_path();
     std::fs::create_dir_all(root).unwrap();
     let directory = tempfile::Builder::new()
         .prefix("m06-ack-retry-")

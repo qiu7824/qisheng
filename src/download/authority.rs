@@ -908,11 +908,7 @@ impl OwnedPart {
             &self.plan.basename,
             &self.record.identity,
         )?;
-        let retained_part = if cfg!(unix) {
-            Some(self.record.clone())
-        } else {
-            None
-        };
+        let retained_part = None;
         Ok(CommittedSidecar {
             path: self.plan.path(),
             identity: self.record.identity,
@@ -1081,11 +1077,7 @@ impl VerifiedOwnedAudio {
             &self.part.record.identity,
         )?;
         let path = self.part.plan.path();
-        let retained_part = if cfg!(unix) {
-            Some(self.part.record.clone())
-        } else {
-            None
-        };
+        let retained_part = None;
         Ok(CommittedAudio {
             path,
             identity: self.part.record.identity,
@@ -3716,11 +3708,29 @@ mod platform {
         Ok(file)
     }
     pub(super) fn verify_removed_owned(
-        _parent: &File,
-        _name: &str,
+        parent: &File,
+        name: &str,
         _expected: &FileIdentity,
     ) -> Result<()> {
-        bail!("UnsupportedCapability: identity-atomic artifact removal is unavailable")
+        let name = CString::new(name)?;
+        let mut result = std::mem::MaybeUninit::<libc::stat>::uninit();
+        if unsafe {
+            libc::fstatat(
+                parent.as_raw_fd(),
+                name.as_ptr(),
+                result.as_mut_ptr(),
+                libc::AT_SYMLINK_NOFOLLOW,
+            )
+        } == 0
+        {
+            bail!("Download cleanup leaf is still present");
+        }
+        let error = io::Error::last_os_error();
+        ensure!(
+            error.kind() == io::ErrorKind::NotFound,
+            "Cannot verify download cleanup: {error}"
+        );
+        Ok(())
     }
     pub(super) fn create_child_directory(parent: &File, name: &str) -> Result<File> {
         let component = CString::new(name)?;
@@ -3813,55 +3823,43 @@ mod platform {
     ) -> Result<()> {
         verify_file_name(parent, old, expected)?;
         ensure!(
-            &identity(file)? == expected,
-            "Owned partial changed before commit"
+            &identity(file)? == expected && link_count(file)? == 1,
+            "Download source changed before publication"
         );
+        let old = CString::new(old)?;
         let new = CString::new(new)?;
         #[cfg(target_os = "linux")]
+        let result = unsafe {
+            libc::renameat2(
+                parent.as_raw_fd(),
+                old.as_ptr(),
+                parent.as_raw_fd(),
+                new.as_ptr(),
+                libc::RENAME_NOREPLACE,
+            )
+        };
+        #[cfg(target_os = "macos")]
+        let result = unsafe {
+            libc::renameatx_np(
+                parent.as_raw_fd(),
+                old.as_ptr(),
+                parent.as_raw_fd(),
+                new.as_ptr(),
+                libc::RENAME_EXCL,
+            )
+        };
+        #[cfg(not(any(target_os = "linux", target_os = "macos")))]
+        return Err(anyhow::anyhow!(
+            "Atomic no-replace publication is unavailable on this Unix target"
+        ));
+        #[cfg(any(target_os = "linux", target_os = "macos"))]
         {
-            let mut result = unsafe {
-                libc::linkat(
-                    file.as_raw_fd(),
-                    c"".as_ptr(),
-                    parent.as_raw_fd(),
-                    new.as_ptr(),
-                    libc::AT_EMPTY_PATH,
-                )
-            };
-            if result != 0
-                && matches!(
-                    io::Error::last_os_error().raw_os_error(),
-                    Some(libc::EPERM | libc::ENOENT | libc::EINVAL)
-                )
-            {
-                // procfs resolves this process's still-owned physical FD. The
-                // final component remains exclusive and parent-handle relative.
-                let source = CString::new(format!("/proc/self/fd/{}", file.as_raw_fd()))?;
-                let proof = File::open(std::ffi::OsStr::from_bytes(source.as_bytes()))?;
-                ensure!(
-                    &identity(&proof)? == expected,
-                    "Owned descriptor projection changed"
-                );
-                result = unsafe {
-                    libc::linkat(
-                        libc::AT_FDCWD,
-                        source.as_ptr(),
-                        parent.as_raw_fd(),
-                        new.as_ptr(),
-                        libc::AT_SYMLINK_FOLLOW,
-                    )
-                };
-            }
             if result != 0 {
                 return Err(io::Error::last_os_error())
-                    .context("UnsupportedCapability: cannot commit owned descriptor atomically");
+                    .context("Native no-replace download publication failed");
             }
             parent.sync_all()?;
             Ok(())
-        }
-        #[cfg(not(target_os = "linux"))]
-        {
-            bail!("UnsupportedCapability: atomic download commit unavailable on this platform");
         }
     }
     pub(super) fn remove_owned(
@@ -3872,12 +3870,20 @@ mod platform {
     ) -> Result<()> {
         verify_file_name(parent, name, expected)?;
         ensure!(
-            &identity(file)? == expected,
-            "Owned partial changed before cleanup"
+            &identity(file)? == expected && link_count(file)? == 1,
+            "Download cleanup refuses changed or aliased temporary files"
         );
-        bail!(
-            "UnsupportedCapability: this platform cannot delete a namespace entry by owned file identity atomically"
-        )
+        let name = CString::new(name)?;
+        if unsafe { libc::unlinkat(parent.as_raw_fd(), name.as_ptr(), 0) } != 0 {
+            return Err(io::Error::last_os_error())
+                .context("Cannot retire owned download temporary file");
+        }
+        ensure!(
+            link_count(file)? == 0,
+            "Download namespace changed during retirement"
+        );
+        parent.sync_all()?;
+        Ok(())
     }
 }
 

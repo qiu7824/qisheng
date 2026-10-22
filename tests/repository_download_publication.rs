@@ -25,7 +25,8 @@ struct Case {
     artifacts: Vec<(String, u64, u64, String)>,
 }
 fn case(sidecar: bool) -> Case {
-    let fixture_root = std::path::Path::new(r"E:\codex操作目录\tasks\lx-gpui-player\test-fixtures");
+    let temporary_root = std::env::temp_dir().join("lx-native-fixtures");
+    let fixture_root = temporary_root.as_path();
     std::fs::create_dir_all(fixture_root).unwrap();
     let directory = tempfile::Builder::new()
         .prefix("publication-sql-")

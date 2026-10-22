@@ -7,8 +7,7 @@ use windows_sys::Win32::Foundation::{HANDLE_FLAG_PROTECT_FROM_CLOSE, SetHandleIn
 
 #[test]
 fn actual_backend_handover_keeps_guard_and_proof_handle_until_native_close_really_succeeds() {
-    let directory =
-        tempfile::tempdir_in(r"E:\codex操作目录\tasks\lx-gpui-player\test-temp").unwrap();
+    let directory = tempfile::tempdir_in(std::env::temp_dir()).unwrap();
     let config = BackendConfig::headless(directory.path().to_path_buf());
     let backend = BackendHandle::start(config.clone()).unwrap();
     let (snapshot, _) = backend.snapshot_with_cursor().unwrap();

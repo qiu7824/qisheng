@@ -83,8 +83,7 @@ fn actual_second_process_exit_keeps_every_resume_journal_chain_monotone_and_reco
         "replacement-main-moved",
         "installed",
     ] {
-        let folder =
-            tempfile::tempdir_in(r"E:\codex操作目录\tasks\lx-gpui-player\test-temp").unwrap();
+        let folder = tempfile::tempdir_in(std::env::temp_dir()).unwrap();
         initial_child(folder.path(), initial);
         second_child(folder.path());
         let (guard, selection) = select(folder.path(), 223);

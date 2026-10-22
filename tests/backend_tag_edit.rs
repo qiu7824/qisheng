@@ -123,7 +123,7 @@ fn patch() -> LocalTagEditPatch {
 
 #[test]
 fn fresh_profile_public_tag_api_requires_independent_consent_and_retires_actual_owned_files() {
-    let base = PathBuf::from(r"E:\codex操作目录\tasks\lx-gpui-player\test-temp");
+    let base = std::env::temp_dir();
     fs::create_dir_all(&base).unwrap();
     let temp = tempfile::Builder::new()
         .prefix("backend-tag-edit-")

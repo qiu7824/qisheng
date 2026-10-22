@@ -884,7 +884,66 @@ mod pin_retirement_tests {
         std::fs::remove_dir(directory.path().join("second")).unwrap();
     }
 }
-#[cfg(not(windows))]
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+fn capture_readonly_same_object(
+    source: &File,
+    recipient: &mut Option<ManuallyDrop<File>>,
+) -> Result<()> {
+    use std::{
+        ffi::CString,
+        os::unix::{
+            ffi::OsStrExt,
+            io::{AsRawFd, FromRawFd},
+        },
+    };
+    ensure!(
+        recipient.is_none(),
+        "Native read recipient is already occupied"
+    );
+    #[cfg(target_os = "linux")]
+    let path = std::path::PathBuf::from(format!("/proc/self/fd/{}", source.as_raw_fd()));
+    #[cfg(target_os = "macos")]
+    let path = {
+        let mut bytes = [0u8; libc::PATH_MAX as usize];
+        ensure!(
+            unsafe { libc::fcntl(source.as_raw_fd(), libc::F_GETPATH, bytes.as_mut_ptr()) } >= 0,
+            "Cannot resolve published download descriptor: {}",
+            io::Error::last_os_error()
+        );
+        let end = bytes
+            .iter()
+            .position(|b| *b == 0)
+            .context("Unterminated native download path")?;
+        std::path::PathBuf::from(std::ffi::OsStr::from_bytes(&bytes[..end]))
+    };
+    let name = CString::new(path.as_os_str().as_bytes())?;
+    let flags = libc::O_RDONLY | libc::O_CLOEXEC | libc::O_NONBLOCK;
+    #[cfg(target_os = "macos")]
+    let flags = flags | libc::O_NOFOLLOW;
+    let descriptor = unsafe { libc::open(name.as_ptr(), flags) };
+    if descriptor >= 0 {
+        *recipient = Some(ManuallyDrop::new(unsafe { File::from_raw_fd(descriptor) }));
+    }
+    ensure!(
+        descriptor >= 0,
+        "Cannot open a restricted download reader: {}",
+        io::Error::last_os_error()
+    );
+    let reader = recipient
+        .as_ref()
+        .context("Native read recipient has no descriptor")?;
+    ensure!(
+        platform::identity(reader)? == platform::identity(source)?,
+        "Read recipient identifies another native file"
+    );
+    let access = unsafe { libc::fcntl(reader.as_raw_fd(), libc::F_GETFL) };
+    ensure!(
+        access >= 0 && access & libc::O_ACCMODE == libc::O_RDONLY,
+        "Native download reader has writable access"
+    );
+    Ok(())
+}
+#[cfg(not(any(windows, target_os = "linux", target_os = "macos")))]
 fn capture_readonly_same_object(_: &File, _: &mut Option<ManuallyDrop<File>>) -> Result<()> {
     anyhow::bail!("UnsupportedCapability: native same-object download adoption requires Windows")
 }
@@ -903,4 +962,36 @@ pub(super) fn close_actual_library_file(file: File) -> std::result::Result<(), (
 pub(super) fn close_actual_library_file(file: File) -> std::result::Result<(), (File, io::Error)> {
     drop(file);
     Ok(())
+}
+
+#[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
+mod unix_reader_tests {
+    use super::*;
+    use std::io::{Read, Write};
+    #[test]
+    fn published_reader_has_same_identity_but_cannot_write() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("已完成.flac");
+        let mut source = std::fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create_new(true)
+            .open(&path)
+            .unwrap();
+        source.write_all(b"published content").unwrap();
+        source.sync_all().unwrap();
+        let mut captured = None;
+        capture_readonly_same_object(&source, &mut captured).unwrap();
+        let mut reader = ManuallyDrop::into_inner(captured.take().unwrap());
+        assert_eq!(
+            platform::identity(&reader).unwrap(),
+            platform::identity(&source).unwrap()
+        );
+        assert!(reader.write_all(b"overwrite").is_err());
+        let mut content = String::new();
+        reader.read_to_string(&mut content).unwrap();
+        assert_eq!(content, "published content");
+        close_actual_library_file(reader).unwrap();
+        assert_eq!(std::fs::read(path).unwrap(), b"published content");
+    }
 }

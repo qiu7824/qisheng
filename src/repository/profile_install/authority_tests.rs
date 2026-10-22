@@ -14,7 +14,7 @@ use serde_json::json;
 use std::{fs, path::Path};
 
 fn folder() -> tempfile::TempDir {
-    tempfile::tempdir_in(r"E:\codex操作目录\tasks\lx-gpui-player\test-temp").unwrap()
+    tempfile::tempdir_in(std::env::temp_dir()).unwrap()
 }
 fn wav(path: &Path) {
     let mut body = b"WAVEfmt ".to_vec();

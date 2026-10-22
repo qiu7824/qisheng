@@ -64,7 +64,8 @@ impl Drop for FixtureDirectory {
     }
 }
 pub fn fixture_directory() -> Result<FixtureDirectory> {
-    let root = Path::new(r"E:\codex操作目录\tasks\lx-gpui-player\test-fixtures");
+    let temporary_root = std::env::temp_dir().join("lx-native-fixtures");
+    let root = temporary_root.as_path();
     fs::create_dir_all(root)?;
     Ok(FixtureDirectory(Some(
         tempfile::Builder::new()
@@ -516,10 +517,7 @@ pub fn retire_fixture(record: &OwnedPartRecord) -> Result<OwnedPartRecord> {
                 allocation.working_directory_path.as_path()
             };
             anyhow::ensure!(
-                within_fixture(
-                    root,
-                    Path::new(r"E:\codex操作目录\tasks\lx-gpui-player\test-fixtures")
-                ),
+                within_fixture(root, &std::env::temp_dir().join("lx-native-fixtures")),
                 "Fixture recovery left its owned task arena"
             );
             let selected = lx_gpui_player::download::DestinationGrant::open_selected(
