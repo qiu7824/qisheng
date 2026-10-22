@@ -212,7 +212,20 @@ impl UiInvalidationHandle {
             }
             commands.push_back(command);
         }
-        self.request_rebuild();
+        if !self.request_rebuild() {
+            // A hidden view retains pending redraws without consuming them.
+            // Commands must still wake that host so a restore can be delivered.
+            let target = self
+                .inner
+                .target
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .as_ref()
+                .map(|(_, target)| target.clone());
+            if let Some(target) = target {
+                target();
+            }
+        }
         Ok(())
     }
 
@@ -10996,6 +11009,14 @@ mod tests {
             );
         let mut runtime = builder.native_view_input_runtime();
         assert!(runtime.suspend_view_when_hidden());
+        let wake_count = Arc::new(AtomicUsize::new(0));
+        let target_count = wake_count.clone();
+        let _binding = runtime.bind_invalidation_target(move || {
+            target_count.fetch_add(1, Ordering::AcqRel);
+        });
+        handle.request_rebuild();
+        runtime.refresh_invalidated_view();
+        let before_command = wake_count.load(Ordering::Acquire);
         std::thread::spawn(move || {
             handle
                 .request_app_command(Command::custom("restore"))
@@ -11003,6 +11024,7 @@ mod tests {
         })
         .join()
         .unwrap();
+        assert!(wake_count.load(Ordering::Acquire) > before_command);
         let report = runtime.refresh_invalidated_view();
         assert_eq!(handled.load(Ordering::Acquire), 1);
         assert_eq!(report.window_commands, [crate::ZsWindowCommand::Show]);
