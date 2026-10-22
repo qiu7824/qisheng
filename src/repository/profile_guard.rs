@@ -730,6 +730,7 @@ fn initialize_open(
             &path,
             OpenFlags::SQLITE_OPEN_READ_WRITE
                 | OpenFlags::SQLITE_OPEN_NO_MUTEX
+                | OpenFlags::SQLITE_OPEN_NOFOLLOW
                 | if expected_main.is_none() {
                     OpenFlags::SQLITE_OPEN_CREATE
                 } else {
@@ -877,6 +878,23 @@ fn lock_identity(_: &File) -> Result<FileIdentity> {
 #[cfg(all(test, any(windows, any(target_os = "linux", target_os = "macos"))))]
 mod tests {
     use super::*;
+    #[cfg(unix)]
+    #[test]
+    fn profile_open_refuses_a_database_symlink_without_modifying_the_target() {
+        let temporary = tempfile::tempdir().unwrap();
+        let foreign = temporary.path().join("foreign.sqlite3");
+        let connection = Connection::open(&foreign).unwrap();
+        connection
+            .execute_batch("CREATE TABLE untouched(value); INSERT INTO untouched VALUES(7);")
+            .unwrap();
+        drop(connection);
+        let before = std::fs::read(&foreign).unwrap();
+        let profile = temporary.path().join("profile");
+        std::fs::create_dir(&profile).unwrap();
+        std::os::unix::fs::symlink(&foreign, profile.join(DATABASE_NAME)).unwrap();
+        assert!(Repository::open(&profile).is_err());
+        assert_eq!(std::fs::read(&foreign).unwrap(), before);
+    }
     #[cfg(windows)]
     #[test]
     fn actual_post_sqlite_close_proof_failure_retains_same_guard_and_native_handle_for_retry() {

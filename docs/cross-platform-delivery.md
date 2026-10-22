@@ -13,7 +13,7 @@
 | Windows | x64 | windows-2025 | ZIP，包含栖声.exe、CLI 与 MSVC 运行库 |
 | macOS | Apple Silicon arm64 | macos-15 | APP、ZIP、DMG |
 | macOS | Intel x64 | macos-15-intel | APP、ZIP、DMG |
-| Linux | x64 | ubuntu-24.04 | tar.gz，包含程序、图标与 desktop 文件 |
+| Linux | x64 | ubuntu-24.04 | DEB 安装包及 tar.gz 便携包 |
 
 macOS 首轮最低版本设为 15.0，Linux 首轮验证基线为 Ubuntu 24.04。更低版本或其他发行版需增加对应环境验证后纳入支持范围。两个 macOS 架构独立原生构建，不通过跨架构模拟结果代替验证。
 
@@ -47,7 +47,7 @@ macOS 首轮最低版本设为 15.0，Linux 首轮验证基线为 Ubuntu 24.04�
 
 ## 包格式与签名
 
-Windows 包包含程序所需的 MSVC 运行库。Linux tar.gz 面向上述验证基线，需要系统提供 ALSA、Cairo/Pango 和相应桌面组件；它不声明为独立于发行版的 AppImage。desktop 文件供安装到用户应用目录时使用，便携运行直接启动包内 `qisheng`。
+Windows 包包含程序所需的 MSVC 运行库。Linux DEB 安装包声明音频、图形与中文字体依赖，并安装应用菜单入口；tar.gz 便携包面向上述验证基线，需要系统提供 ALSA、Cairo/Pango 和相应桌面组件。便携运行直接启动包内 `qisheng`。
 
 macOS 构建生成应用包并做 ad-hoc 签名及签名验证。Developer ID 签名和 Apple 公证属于后续正式发行门槛，需要专用签名身份与账号配置；ad-hoc 签名不声明为已公证发行版。
 

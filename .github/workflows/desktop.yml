@@ -93,7 +93,7 @@ jobs:
         if: matrix.os == 'linux'
         run: |
           sudo apt-get update
-          sudo apt-get install --no-install-recommends -y build-essential pkg-config libasound2-dev libcairo2-dev libpango1.0-dev libfontconfig1-dev libxkbcommon-dev libwayland-dev libx11-dev libxext-dev libxrandr-dev libxi-dev libxcursor-dev libxfixes-dev libegl1-mesa-dev libgl1-mesa-dev xvfb xauth dbus-x11 zenity
+          sudo apt-get install --no-install-recommends -y build-essential pkg-config libasound2-dev libcairo2-dev libpango1.0-dev libfontconfig1-dev libxkbcommon-dev libwayland-dev libx11-dev libxext-dev libxrandr-dev libxi-dev libxcursor-dev libxfixes-dev libegl1-mesa-dev libgl1-mesa-dev fonts-noto-cjk xvfb xauth dbus-x11 zenity
 
       - name: Rust toolchain and native target identity
         run: |
@@ -196,7 +196,14 @@ jobs:
               app = executables / 'qisheng'
               cli = executables / 'qisheng-cli'
               with (contents / 'Info.plist').open('wb') as output:
-                  plistlib.dump(dict(CFBundleIdentifier='com.qisheng.desktop', CFBundleName='栖声', CFBundleDisplayName='栖声', CFBundleExecutable='qisheng', CFBundlePackageType='APPL', CFBundleShortVersionString=version.split('-')[0], CFBundleVersion=os.environ['GITHUB_RUN_NUMBER'], LSMinimumSystemVersion='15.0', NSHighResolutionCapable=True, NSPrincipalClass='NSApplication'), output)
+                  plistlib.dump(dict(CFBundleIdentifier='com.qisheng.desktop', CFBundleName='栖声', CFBundleDisplayName='栖声', CFBundleExecutable='qisheng', CFBundleIconFile='AppIcon', CFBundlePackageType='APPL', CFBundleShortVersionString=version.split('-')[0], CFBundleVersion=os.environ['GITHUB_RUN_NUMBER'], LSMinimumSystemVersion='15.0', NSHighResolutionCapable=True, NSPrincipalClass='NSApplication'), output)
+              iconset = root / 'temp' / 'AppIcon.iconset'
+              iconset.mkdir()
+              for points in [16, 32, 128, 256, 512]:
+                  for scale in [1, 2]:
+                      output = iconset / ('icon_' + str(points) + 'x' + str(points) + ('@2x' if scale == 2 else '') + '.png')
+                      subprocess.run(['sips', '-z', str(points * scale), str(points * scale), str(source / 'assets/lx-native.png'), '--out', str(output)], check=True, stdout=subprocess.DEVNULL)
+              subprocess.run(['iconutil', '-c', 'icns', str(iconset), '-o', str(resources / 'AppIcon.icns')], check=True)
           else:
               app = staging / ('栖声.exe' if system == 'Windows' else 'qisheng')
               cli = staging / ('qisheng-cli.exe' if system == 'Windows' else 'qisheng-cli')
@@ -224,6 +231,9 @@ jobs:
           else:
               shutil.copy2(source / 'assets/lx-native.png', staging / 'qisheng.png')
               (staging / 'qisheng.desktop').write_text('[Desktop Entry]\nType=Application\nName=栖声\nExec=qisheng %F\nIcon=qisheng\nTerminal=false\nCategories=AudioVideo;Audio;Player;\nMimeType=audio/mpeg;audio/flac;audio/ogg;audio/x-wav;\n', encoding='utf-8')
+              linked = subprocess.check_output(['ldd', str(app)], text=True)
+              (root / 'evidence' / 'linux-runtime-libraries.txt').write_text(linked, encoding='utf-8')
+              assert 'not found' not in linked, 'A Linux runtime library is missing'
           result = subprocess.run([str(cli), '--data-dir', str(root / 'temp' / 'package-profile'), 'status'], capture_output=True, timeout=45)
           (root / 'evidence' / 'packaged-cli.log').write_bytes(result.stdout + result.stderr)
           assert result.returncode == 0, result.stderr.decode(errors='replace')[-3000:]
@@ -243,6 +253,54 @@ jobs:
           else:
               with tarfile.open(packages / (name + '.tar.gz'), 'w:gz') as archive:
                   archive.add(staging, arcname=name)
+              deb = root / 'temp' / 'debian-package'
+              (deb / 'DEBIAN').mkdir(parents=True)
+              shutil.copytree(staging, deb / 'usr/lib/qisheng')
+              (deb / 'usr/bin').mkdir(parents=True)
+              (deb / 'usr/bin/qisheng').symlink_to('../lib/qisheng/qisheng')
+              (deb / 'usr/bin/qisheng-cli').symlink_to('../lib/qisheng/qisheng-cli')
+              (deb / 'usr/share/applications').mkdir(parents=True)
+              shutil.copy2(staging / 'qisheng.desktop', deb / 'usr/share/applications/qisheng.desktop')
+              icons = deb / 'usr/share/icons/hicolor/scalable/apps'
+              icons.mkdir(parents=True)
+              shutil.copy2(source / 'assets/qisheng.svg', icons / 'qisheng.svg')
+              depends = 'libc6, libasound2t64, libcairo2, libpango-1.0-0, libpangocairo-1.0-0, libfontconfig1, libxkbcommon0, libwayland-client0, libx11-6, libxcursor1, libxi6, libxrandr2, libxfixes3, libxext6, libgl1, libegl1, fonts-noto-cjk'
+              (deb / 'DEBIAN/control').write_text('Package: qisheng\nVersion: ' + version.replace('-', '~', 1) + '\nArchitecture: amd64\nMaintainer: Qisheng <30194382+qiu7824@users.noreply.github.com>\nSection: sound\nPriority: optional\nDepends: ' + depends + '\nDescription: Qisheng native desktop music player\n Native music library, playback and synchronized lyrics.\n', encoding='utf-8')
+              debfile = packages / (name + '.deb')
+              subprocess.run(['dpkg-deb', '--root-owner-group', '--build', str(deb), str(debfile)], check=True)
+              subprocess.run(['dpkg-deb', '--info', str(debfile)], check=True)
+          unpacked = root / 'temp' / 'archive-verification'
+          unpacked.mkdir()
+          candidates = []
+          if system == 'Darwin':
+              subprocess.run(['ditto', '-x', '-k', str(packages / (name + '.zip')), str(unpacked)], check=True)
+              subprocess.run(['hdiutil', 'verify', str(packages / (name + '.dmg'))], check=True)
+              subprocess.run(['codesign', '--verify', '--deep', '--strict', str(unpacked / name / '栖声.app')], check=True)
+              candidates.append((unpacked / name, Path('栖声.app/Contents/MacOS/qisheng-cli')))
+          elif system == 'Windows':
+              with zipfile.ZipFile(packages / (name + '.zip')) as archive:
+                  assert archive.testzip() is None, 'ZIP integrity check failed'
+                  archive.extractall(unpacked)
+              candidates.append((unpacked / name, Path('qisheng-cli.exe')))
+          else:
+              with tarfile.open(packages / (name + '.tar.gz')) as archive:
+                  archive.extractall(unpacked, filter='data')
+              candidates.append((unpacked / name, Path('qisheng-cli')))
+              extracted_deb = unpacked / 'deb'
+              subprocess.run(['dpkg-deb', '--extract', str(debfile), str(extracted_deb)], check=True)
+              candidates.append((extracted_deb / 'usr/lib/qisheng', Path('qisheng-cli')))
+          verified = []
+          for index, (directory, relative_cli) in enumerate(candidates):
+              for line in (directory / 'SHA256SUMS.txt').read_text(encoding='utf-8').splitlines():
+                  expected, relative = line.split('  ', 1)
+                  checked = directory / relative
+                  checked.resolve().relative_to(directory.resolve())
+                  assert hashlib.sha256(checked.read_bytes()).hexdigest() == expected, relative
+              result = subprocess.run([str(directory / relative_cli), '--data-dir', str(root / 'temp' / ('归档验证-' + str(index))), 'status'], capture_output=True, timeout=45)
+              (root / 'evidence' / ('archive-cli-' + str(index) + '.log')).write_bytes(result.stdout + result.stderr)
+              assert result.returncode == 0, result.stderr.decode(errors='replace')[-3000:]
+              verified.append(dict(directory=directory.name, checksum='passed', cli='passed'))
+          (root / 'evidence' / 'archive-verification.json').write_text(json.dumps(verified, indent=2), encoding='utf-8')
           (packages / 'SHA256SUMS.txt').write_text(''.join(hashlib.sha256(path.read_bytes()).hexdigest() + '  ' + path.name + '\n' for path in sorted(packages.iterdir()) if path.is_file()), encoding='utf-8')
           PY
 
