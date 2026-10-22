@@ -786,7 +786,7 @@ fn open_lock(path: &Path) -> Result<File> {
             .share_mode(FILE_SHARE_READ | FILE_SHARE_WRITE)
             .custom_flags(FILE_FLAG_OPEN_REPARSE_POINT);
     }
-    #[cfg(target_os = "linux")]
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
     {
         use std::os::unix::fs::OpenOptionsExt;
         options.custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC);
@@ -855,7 +855,7 @@ fn lock_identity(file: &File) -> Result<FileIdentity> {
     })
 }
 
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 fn lock_identity(file: &File) -> Result<FileIdentity> {
     use std::os::unix::fs::MetadataExt;
     let metadata = file.metadata()?;
@@ -869,12 +869,12 @@ fn lock_identity(file: &File) -> Result<FileIdentity> {
     })
 }
 
-#[cfg(not(any(windows, target_os = "linux")))]
+#[cfg(not(any(windows, any(target_os = "linux", target_os = "macos"))))]
 fn lock_identity(_: &File) -> Result<FileIdentity> {
     anyhow::bail!("Continuous native profile guards are unsupported on this platform")
 }
 
-#[cfg(all(test, any(windows, target_os = "linux")))]
+#[cfg(all(test, any(windows, any(target_os = "linux", target_os = "macos"))))]
 mod tests {
     use super::*;
     #[cfg(windows)]
@@ -1225,7 +1225,7 @@ mod tests {
             );
             guard.verify().unwrap();
         }
-        #[cfg(target_os = "linux")]
+        #[cfg(any(target_os = "linux", target_os = "macos"))]
         {
             fs::rename(&lock, &replacement).unwrap();
             assert_eq!(

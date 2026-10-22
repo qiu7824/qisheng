@@ -3299,7 +3299,7 @@ mod platform {
         open_relative(parent, name, false, false, false)
     }
 }
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 mod platform {
     use super::*;
     use std::{
@@ -3398,6 +3398,7 @@ mod platform {
         }
         Ok(())
     }
+    #[cfg(target_os = "linux")]
     pub(super) fn create_private(parent: &File, _name: Option<&str>) -> Result<File> {
         let fd = unsafe {
             libc::openat(
@@ -3413,6 +3414,12 @@ mod platform {
             );
         }
         Ok(unsafe { File::from_raw_fd(fd) })
+    }
+    #[cfg(target_os = "macos")]
+    pub(super) fn create_private(_parent: &File, _name: Option<&str>) -> Result<File> {
+        Err(unsupported(
+            "macOS physical snapshot publication requires a journaled named-file owner",
+        ))
     }
     pub(super) fn verify_name(parent: &File, name: &str, expected: &FileIdentity) -> Result<()> {
         let name = CString::new(name)?;
@@ -3434,6 +3441,7 @@ mod platform {
         );
         Ok(())
     }
+    #[cfg(target_os = "linux")]
     pub(super) fn publish(
         file: &File,
         parent: &File,
@@ -3478,6 +3486,17 @@ mod platform {
             }
         }
         Ok(())
+    }
+    #[cfg(target_os = "macos")]
+    pub(super) fn publish(
+        _file: &File,
+        _parent: &File,
+        _name: &str,
+        _expected: &FileIdentity,
+    ) -> Result<()> {
+        Err(unsupported(
+            "macOS physical snapshot publication requires a journaled named-file owner",
+        ))
     }
     pub(super) fn sync_directory(directory: &File) -> Result<()> {
         directory.sync_all()?;
@@ -3576,7 +3595,7 @@ mod platform {
         bail!("UnsupportedCapability: Linux cold snapshot recovery is not enabled")
     }
 }
-#[cfg(not(any(windows, target_os = "linux")))]
+#[cfg(not(any(windows, target_os = "linux", target_os = "macos")))]
 mod platform {
     use super::*;
     pub(super) fn pin_directory(_path: &Path) -> Result<(PathBuf, Vec<File>)> {

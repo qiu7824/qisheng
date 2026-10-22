@@ -931,7 +931,7 @@ impl Iterator for AuthorizedReadDir {
     }
 }
 impl AuthorizedDirectory {
-    #[cfg(target_os = "linux")]
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
     pub(crate) fn native_file(&self) -> Result<&File> {
         self.access.check()?;
         self._handles
@@ -1111,13 +1111,13 @@ struct RepresentationStamp {
 }
 struct VerifiedContentEvidence {
     stamp: RepresentationStamp,
-    #[cfg(target_os = "linux")]
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
     changed: (i64, i64),
 }
 impl VerifiedContentEvidence {
     fn capture(file: &File) -> Result<Self> {
         let stamp = RepresentationStamp::read(file)?;
-        #[cfg(target_os = "linux")]
+        #[cfg(any(target_os = "linux", target_os = "macos"))]
         let changed = {
             use std::os::unix::fs::MetadataExt;
             let metadata = file.metadata()?;
@@ -1125,7 +1125,7 @@ impl VerifiedContentEvidence {
         };
         Ok(Self {
             stamp,
-            #[cfg(target_os = "linux")]
+            #[cfg(any(target_os = "linux", target_os = "macos"))]
             changed,
         })
     }
@@ -1135,10 +1135,10 @@ impl VerifiedContentEvidence {
             current.stamp == self.stamp,
             "Verified content representation changed"
         );
-        #[cfg(target_os = "linux")]
+        #[cfg(any(target_os = "linux", target_os = "macos"))]
         ensure!(
             current.changed == self.changed,
-            "Verified Linux file changed after content hashing"
+            "Verified Unix file changed after content hashing"
         );
         Ok(())
     }
@@ -2144,14 +2144,14 @@ impl AuthorityRegistry {
         identity: &FileIdentity,
         opened: &AuthorizedFile,
     ) -> Result<PreparedAssetRelocation> {
-        #[cfg(target_os = "linux")]
+        #[cfg(any(target_os = "linux", target_os = "macos"))]
         {
             let _ = (record, identity, opened);
             anyhow::bail!(
-                "UnsupportedCapability: automatic Linux relocation requires verified content evidence"
+                "UnsupportedCapability: automatic Unix relocation requires verified content evidence"
             );
         }
-        #[cfg(not(target_os = "linux"))]
+        #[cfg(not(any(target_os = "linux", target_os = "macos")))]
         self.prepare_asset_relocation_impl(record, identity, opened, None)
     }
     pub fn prepare_asset_relocation_with_content(
@@ -4380,7 +4380,7 @@ mod platform {
         Ok(std::fs::read_dir(path)?)
     }
 }
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 mod platform {
     use super::*;
     use std::ffi::CString;
@@ -4502,9 +4502,25 @@ mod platform {
             nanoseconds: metadata.ctime_nsec(),
         })
     }
+    #[cfg(target_os = "linux")]
     pub(super) fn current_path(file: &File) -> Result<PathBuf> {
         let path = std::fs::read_link(format!("/proc/self/fd/{}", file.as_raw_fd()))
-            .context("UnsupportedCapability: Linux descriptor paths are unavailable")?;
+            .context("Linux descriptor paths are unavailable")?;
+        validate_path(&path)?;
+        Ok(path)
+    }
+    #[cfg(target_os = "macos")]
+    pub(super) fn current_path(file: &File) -> Result<PathBuf> {
+        let mut path = [0u8; libc::PATH_MAX as usize];
+        if unsafe { libc::fcntl(file.as_raw_fd(), libc::F_GETPATH, path.as_mut_ptr()) } < 0 {
+            return Err(io::Error::last_os_error())
+                .context("Cannot resolve the macOS file descriptor");
+        }
+        let end = path
+            .iter()
+            .position(|byte| *byte == 0)
+            .context("Unterminated macOS descriptor path")?;
+        let path = PathBuf::from(std::ffi::OsStr::from_bytes(&path[..end]));
         validate_path(&path)?;
         Ok(path)
     }
@@ -4554,10 +4570,15 @@ mod platform {
             current_path(file)? == path,
             "Library directory moved after verification"
         );
-        Ok(std::fs::read_dir(format!(
-            "/proc/self/fd/{}",
-            file.as_raw_fd()
-        ))?)
+        #[cfg(target_os = "linux")]
+        let entries = std::fs::read_dir(format!("/proc/self/fd/{}", file.as_raw_fd()))?;
+        #[cfg(target_os = "macos")]
+        let entries = std::fs::read_dir(path)?;
+        ensure!(
+            current_path(file)? == path,
+            "Library directory moved while opening enumeration"
+        );
+        Ok(entries)
     }
     pub(super) fn open_directory_pinned(path: &Path) -> Result<(PathBuf, FileIdentity, Vec<File>)> {
         open_directory(path)
@@ -4568,7 +4589,7 @@ mod platform {
         open_file(path)
     }
 }
-#[cfg(not(any(windows, target_os = "linux")))]
+#[cfg(not(any(windows, target_os = "linux", target_os = "macos")))]
 mod platform {
     use super::*;
     pub(super) fn open_root(_: &Path) -> Result<(PathBuf, FileIdentity, Vec<File>)> {
