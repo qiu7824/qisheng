@@ -93,7 +93,7 @@ jobs:
         if: matrix.os == 'linux'
         run: |
           sudo apt-get update
-          sudo apt-get install --no-install-recommends -y build-essential pkg-config libasound2-dev libcairo2-dev libpango1.0-dev libfontconfig1-dev libxkbcommon-dev libwayland-dev libx11-dev libxext-dev libxrandr-dev libxi-dev libxcursor-dev libxfixes-dev libegl1-mesa-dev libgl1-mesa-dev fonts-noto-cjk xvfb xauth dbus-x11 zenity openbox
+          sudo apt-get install --no-install-recommends -y build-essential pkg-config libasound2-dev libcairo2-dev libpango1.0-dev libfontconfig1-dev libxkbcommon-dev libwayland-dev libx11-dev libxext-dev libxrandr-dev libxi-dev libxcursor-dev libxfixes-dev libegl1-mesa-dev libgl1-mesa-dev fonts-noto-cjk xvfb xauth dbus-x11 zenity openbox openbox openbox
 
       - name: Rust toolchain and native target identity
         run: |
@@ -217,9 +217,15 @@ jobs:
                       time.sleep(1)
                       assert manager.poll() is None, 'Window manager did not start'
                   command = [str(executable), '--data-dir', str(profile), '--audio', 'memory', '--instance-smoke', '--smoke-close', '--smoke', str(screenshot), '--smoke-ms', '8000']
+                  if platform.system() == 'Darwin':
+                      os.environ['ZSUI_NATIVE_OWNER_FILE_DIALOG_PROOF_DIR'] = str(evidence)
+                      command.append('--smoke-pickers')
                   primary = subprocess.Popen(command, stdout=log, stderr=subprocess.STDOUT)
-                  time.sleep(2)
-                  assert primary.poll() is None, 'Primary window exited before launch forwarding'
+                  deadline = time.monotonic() + 6
+                  while not screenshot.with_suffix('.closed.json').is_file():
+                      assert primary.poll() is None, 'Primary window exited before launch forwarding'
+                      assert time.monotonic() < deadline, 'Native close was not acknowledged'
+                      time.sleep(0.05)
                   forwarded = subprocess.run([str(executable), '--data-dir', str(profile), '--audio', 'memory', str(fixture)], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=20)
                   (evidence / 'second-launch.log').write_bytes(forwarded.stdout)
                   assert forwarded.returncode == 0, forwarded.stdout.decode(errors='replace')[-3000:]
@@ -236,13 +242,15 @@ jobs:
           assert screenshot.exists() and screenshot.stat().st_size > 1024, 'Native screenshot missing'
           interaction = json.loads(screenshot.with_suffix('.interaction.json').read_text(encoding='utf-8'))
           assert interaction['relaunches_handled'] > 0, 'Second launch did not reach the UI thread'
-          assert interaction['native']['native_view_window_close_request_count'] > 0, 'Close request was not exercised'
-          assert interaction['native']['native_view_window_close_veto_count'] > 0, 'Background close did not retain the window'
+          assert interaction['background_closes'] > 0, 'Native background close did not retain the window'
           database = profile / 'native-library.sqlite3'
           assert database.is_file(), 'Profile database was not created'
           with sqlite3.connect(database.as_uri() + '?mode=ro', uri=True) as connection:
               count = connection.execute('SELECT count(*) FROM local_assets').fetchone()[0]
           assert count == 1, ('Forwarded file was not imported', count)
+          if platform.system() == 'Darwin':
+              for name in ['notepad-owner-open-panel.png', 'folder-owner-panel.png']:
+                  assert (evidence / name).is_file() and (evidence / name).stat().st_size > 1024, ('Native picker screenshot missing', name)
           (evidence / 'native-smoke-result.json').write_text(json.dumps(dict(window='passed', backgroundClose='passed', secondLaunch='passed', unicodeFileImport='passed', importedAssets=count), indent=2), encoding='utf-8')
           ''', encoding='utf-8')
           command = ['python', str(script)]

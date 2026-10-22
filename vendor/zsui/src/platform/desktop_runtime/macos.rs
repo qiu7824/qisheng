@@ -153,6 +153,10 @@ impl DesktopRuntimeBackend for Backend {
         crate::macos_appkit_services::macos_appkit_save_file_dialog(spec)
     }
 
+    fn pick_folder(&mut self, spec: &FileDialogSpec) -> ZsuiResult<Option<std::path::PathBuf>> {
+        crate::macos_appkit_services::macos_appkit_pick_folder(spec)
+    }
+
     fn show_native_dialog(&mut self, spec: &NativeDialogSpec) -> ZsuiResult<DialogResponse> {
         crate::macos_appkit_services::macos_appkit_show_native_dialog(spec)
     }

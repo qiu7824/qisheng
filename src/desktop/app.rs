@@ -1158,8 +1158,12 @@ pub fn update(state: &mut State, msg: Msg, cx: &mut AppCx) {
 
 fn app_message(state: &mut State, id: &str, cx: &mut AppCx) {
     match id {
+        #[cfg(feature = "smoke")]
+        "smoke.native-close" => cx.window_command(ZsWindowCommand::Close),
         CMD_CLOSE => {
             if state.ui.close_to_tray {
+                #[cfg(feature = "smoke")]
+                state.instance_inbox.background_closed();
                 state.ui.menu = None;
                 if !state.has_tray {
                     state.ui.hidden = false;

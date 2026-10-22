@@ -3,6 +3,7 @@ use std::{
     collections::HashMap,
     path::{Path, PathBuf},
     rc::Rc,
+    sync::atomic::{AtomicBool, Ordering},
 };
 #[cfg(feature = "native-smoke")]
 use std::{ffi::c_void, ptr::NonNull};
@@ -388,6 +389,7 @@ pub(crate) fn run_macos_appkit_native_window_event_loop(
     let status_menu_command_routed =
         auto_close_after_ms.is_some() && status_items.invoke_first_enabled_command_for_proof();
 
+    let _dialog_dispatch = AppKitDialogDispatch::enter();
     if let Some(delay) = auto_close_after_ms {
         application.finishLaunching();
         let deadline = NSDate::dateWithTimeIntervalSinceNow(delay.max(1) as f64 / 1_000.0);
@@ -689,6 +691,10 @@ impl FileDialogService for MacosAppKitFileDialogService {
     fn save_file_dialog(&mut self, spec: &SaveFileDialogSpec) -> ZsuiResult<Option<PathBuf>> {
         macos_appkit_save_file_dialog(spec)
     }
+
+    fn pick_folder(&mut self, spec: &FileDialogSpec) -> ZsuiResult<Option<PathBuf>> {
+        macos_appkit_pick_folder(spec)
+    }
 }
 
 #[derive(Debug, Clone, Copy, Default)]
@@ -704,6 +710,7 @@ impl NativeDialogService for MacosAppKitDialogService {
 enum AppKitFilePanelKind {
     Open,
     Save,
+    Folder,
 }
 
 impl AppKitFilePanelKind {
@@ -712,11 +719,15 @@ impl AppKitFilePanelKind {
         match self {
             Self::Open => "notepad-owner-open-panel.png",
             Self::Save => "notepad-owner-save-panel.png",
+            Self::Folder => "folder-owner-panel.png",
         }
     }
 }
 
 pub fn macos_appkit_open_file_dialog(spec: &FileDialogSpec) -> ZsuiResult<Option<Vec<PathBuf>>> {
+    if MainThreadMarker::new().is_none() {
+        return appkit_dispatch_dialog(|| macos_appkit_open_file_dialog(spec));
+    }
     let mtm = appkit_main_thread_marker("NSOpenPanel")?;
     let owner = appkit_active_file_dialog_owner(mtm);
     let panel = NSOpenPanel::openPanel(mtm);
@@ -750,6 +761,9 @@ pub fn macos_appkit_open_file_dialog(spec: &FileDialogSpec) -> ZsuiResult<Option
 }
 
 pub fn macos_appkit_save_file_dialog(spec: &SaveFileDialogSpec) -> ZsuiResult<Option<PathBuf>> {
+    if MainThreadMarker::new().is_none() {
+        return appkit_dispatch_dialog(|| macos_appkit_save_file_dialog(spec));
+    }
     let mtm = appkit_main_thread_marker("NSSavePanel")?;
     let owner = appkit_active_file_dialog_owner(mtm);
     let panel = NSSavePanel::savePanel(mtm);
@@ -771,6 +785,71 @@ pub fn macos_appkit_save_file_dialog(spec: &SaveFileDialogSpec) -> ZsuiResult<Op
             })
         })
         .transpose()
+}
+
+pub fn macos_appkit_pick_folder(spec: &FileDialogSpec) -> ZsuiResult<Option<PathBuf>> {
+    if MainThreadMarker::new().is_none() {
+        return appkit_dispatch_dialog(|| macos_appkit_pick_folder(spec));
+    }
+    let mtm = appkit_main_thread_marker("NSOpenPanel folder")?;
+    let owner = appkit_active_file_dialog_owner(mtm);
+    let panel = NSOpenPanel::openPanel(mtm);
+    panel.setCanChooseFiles(false);
+    panel.setCanChooseDirectories(true);
+    panel.setAllowsMultipleSelection(false);
+    panel.setCanCreateDirectories(false);
+    panel.setTitle(Some(&NSString::from_str(&spec.title)));
+    appkit_set_initial_directory(&panel, spec.current_path.as_deref());
+    if appkit_run_file_panel(&panel, owner.as_deref(), AppKitFilePanelKind::Folder)?
+        != NSModalResponseOK
+    {
+        return Ok(None);
+    }
+    let path = panel
+        .URL()
+        .and_then(|url| url.to_file_path())
+        .ok_or_else(|| {
+            ZsuiError::host(
+                "macos_pick_folder",
+                "NSOpenPanel returned no local directory",
+            )
+        })?;
+    if !path.is_dir() {
+        return Err(ZsuiError::host(
+            "macos_pick_folder",
+            "NSOpenPanel selection is not a directory",
+        ));
+    }
+    Ok(Some(path))
+}
+
+static APPKIT_DIALOG_DISPATCH_ACTIVE: AtomicBool = AtomicBool::new(false);
+
+struct AppKitDialogDispatch;
+impl AppKitDialogDispatch {
+    fn enter() -> Self {
+        APPKIT_DIALOG_DISPATCH_ACTIVE.store(true, Ordering::Release);
+        Self
+    }
+}
+impl Drop for AppKitDialogDispatch {
+    fn drop(&mut self) {
+        APPKIT_DIALOG_DISPATCH_ACTIVE.store(false, Ordering::Release);
+    }
+}
+
+// Worker callers wait outside the retained View lock; AppKit owns all panels
+// on its main thread. Without a running host, fail instead of waiting forever.
+fn appkit_dispatch_dialog<T: Send>(action: impl FnOnce() -> ZsuiResult<T> + Send) -> ZsuiResult<T> {
+    if !APPKIT_DIALOG_DISPATCH_ACTIVE.load(Ordering::Acquire) {
+        return Err(ZsuiError::host(
+            "macos_file_dialog",
+            "The AppKit event loop is not running",
+        ));
+    }
+    let mut result = None;
+    dispatch2::DispatchQueue::main().exec_sync(|| result = Some(action()));
+    result.expect("The main queue executes synchronous dialog work before returning")
 }
 
 fn appkit_configure_open_panel(panel: &NSOpenPanel, spec: &FileDialogSpec) {

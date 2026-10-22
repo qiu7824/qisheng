@@ -144,17 +144,88 @@ fn run() -> anyhow::Result<()> {
         }
     }
     let builder = window
-        .invalidation_handle(invalidate)
+        .invalidation_handle(invalidate.clone())
         // Closing goes through the app, which may hide to the tray instead.
         .on_close_requested(zsui::Command::custom(app::CMD_CLOSE))
         .stateful_view_with_app_commands(state, app::view, app::update, app::app_command);
 
     #[cfg(feature = "smoke")]
     if args.raw.iter().any(|a| a == "--smoke") {
+        let close_probe = if args.raw.iter().any(|a| a == "--smoke-close") {
+            let wake = invalidate.clone();
+            let observed = inbox.clone();
+            let screenshot = args
+                .raw
+                .iter()
+                .position(|a| a == "--smoke")
+                .and_then(|index| args.raw.get(index + 1))
+                .map(PathBuf::from)
+                .ok_or_else(|| anyhow::anyhow!("Missing smoke screenshot path"))?;
+            Some(std::thread::spawn(move || -> anyhow::Result<()> {
+                std::thread::sleep(Duration::from_secs(1));
+                wake.request_app_command(zsui::Command::custom("smoke.native-close"))?;
+                let deadline = std::time::Instant::now() + Duration::from_secs(5);
+                while observed.background_close_count() == 0 {
+                    anyhow::ensure!(
+                        std::time::Instant::now() < deadline,
+                        "Native close did not reach the app"
+                    );
+                    std::thread::sleep(Duration::from_millis(20));
+                }
+                std::fs::write(
+                    screenshot.with_extension("closed.json"),
+                    b"{\"background_close\":true}",
+                )?;
+                Ok(())
+            }))
+        } else {
+            None
+        };
+        #[cfg(target_os = "macos")]
+        let picker_probe = if args.raw.iter().any(|a| a == "--smoke-pickers") {
+            anyhow::ensure!(
+                std::env::var_os("ZSUI_NATIVE_OWNER_FILE_DIALOG_PROOF_DIR").is_some(),
+                "Picker proof requires an explicit screenshot directory"
+            );
+            Some(std::thread::spawn(|| -> anyhow::Result<()> {
+                use zsui::{FileDialogService, FileDialogSpec, NativeFileDialogService};
+                std::thread::sleep(Duration::from_secs(3));
+                let mut dialogs = NativeFileDialogService::new();
+                anyhow::ensure!(
+                    dialogs
+                        .open_file_dialog(&FileDialogSpec::new("导入音乐"))?
+                        .is_none(),
+                    "The automated file panel should be cancelled"
+                );
+                std::thread::sleep(Duration::from_secs(1));
+                anyhow::ensure!(
+                    dialogs
+                        .pick_folder(&FileDialogSpec::new("添加音乐文件夹"))?
+                        .is_none(),
+                    "The automated folder panel should be cancelled"
+                );
+                Ok(())
+            }))
+        } else {
+            None
+        };
         let report = builder.run_smoke(smoke_options(&args.raw)?)?;
+        if let Some(probe) = close_probe {
+            probe
+                .join()
+                .map_err(|_| anyhow::anyhow!("Native close probe panicked"))??;
+        }
+        #[cfg(target_os = "macos")]
+        if let Some(probe) = picker_probe {
+            probe
+                .join()
+                .map_err(|_| anyhow::anyhow!("Native picker probe panicked"))??;
+        }
         inbox.close();
         println!("{:?}", report.screenshot_file);
-        let _ = backend.shutdown(Duration::from_secs(5));
+        backend
+            .shutdown(Duration::from_secs(5))
+            .map_err(|error| anyhow::anyhow!("backend shutdown: {error}"))?;
         if instance_smoke {
             anyhow::ensure!(
                 inbox.handled_count() > 0,
@@ -165,7 +236,8 @@ fn run() -> anyhow::Result<()> {
             std::fs::write(
                 std::path::Path::new(path).with_extension("interaction.json"),
                 serde_json::to_vec_pretty(&serde_json::json!({
-                    "native": report, "relaunches_handled": inbox.handled_count()
+                    "native": report, "relaunches_handled": inbox.handled_count(),
+                    "background_closes": inbox.background_close_count()
                 }))?,
             )?;
         }
@@ -195,9 +267,6 @@ fn smoke_options(raw: &[String]) -> anyhow::Result<zsui::NativeWindowSmokeRunOpt
     let mut options = zsui::NativeWindowSmokeRunOptions::new(ms)
         .screenshot_file(file)
         .require_screenshot(true);
-    if raw.iter().any(|argument| argument == "--smoke-close") {
-        options = options.native_window_close_request();
-    }
     let point = |v: &str| -> anyhow::Result<zsui::Point> {
         let mut it = v.split(',').map(|n| n.trim().parse::<i32>().ok());
         match (it.next().flatten(), it.next().flatten()) {

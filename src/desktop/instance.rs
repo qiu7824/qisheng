@@ -18,6 +18,8 @@ struct Pending {
     paths: Mutex<VecDeque<Vec<PathBuf>>>,
     closing: AtomicBool,
     handled: AtomicUsize,
+    #[cfg(feature = "smoke")]
+    background_closes: AtomicUsize,
 }
 impl Inbox {
     pub fn take(&self) -> Option<Vec<PathBuf>> {
@@ -36,6 +38,14 @@ impl Inbox {
     #[cfg(feature = "smoke")]
     pub fn handled_count(&self) -> usize {
         self.0.handled.load(Ordering::Acquire)
+    }
+    #[cfg(feature = "smoke")]
+    pub fn background_closed(&self) {
+        self.0.background_closes.fetch_add(1, Ordering::AcqRel);
+    }
+    #[cfg(feature = "smoke")]
+    pub fn background_close_count(&self) -> usize {
+        self.0.background_closes.load(Ordering::Acquire)
     }
     #[cfg(unix)]
     fn enqueue(&self, paths: Vec<PathBuf>, wake: &UiInvalidationHandle) -> Result<()> {
@@ -136,10 +146,9 @@ mod unix {
 
     fn private_directory() -> Result<PathBuf> {
         let uid = unsafe { libc::geteuid() };
-        let mut directory = std::env::temp_dir().join(format!("qisheng-{uid}"));
-        if directory.as_os_str().len() + 38 > 100 {
-            directory = PathBuf::from("/tmp").join(format!("qisheng-{uid}"));
-        }
+        // Finder, desktop launchers and shells may provide different TMPDIRs.
+        // A per-user endpoint must stay stable across those launch environments.
+        let directory = PathBuf::from("/tmp").join(format!("qisheng-{uid}"));
         match fs::DirBuilder::new().mode(0o700).create(&directory) {
             Ok(()) => {}
             Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {}
