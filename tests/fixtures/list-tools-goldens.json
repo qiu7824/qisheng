@@ -1,0 +1,1815 @@
+{
+  "runtime": {
+    "node": "24.19.0",
+    "v8": "13.6.233.17-node.51",
+    "icu": "78.3",
+    "cldr": "48.0",
+    "unicode": "17.0",
+    "default_locale": "zh-CN"
+  },
+  "sort_rows": [
+    {
+      "id": "s0",
+      "name": "北京",
+      "singer": "乙",
+      "source": "wy",
+      "albumName": null,
+      "interval": null
+    },
+    {
+      "id": "s1",
+      "name": "重庆",
+      "singer": "甲",
+      "source": "kw",
+      "albumName": "Zeta",
+      "interval": "10:01"
+    },
+    {
+      "id": "s2",
+      "name": "上海",
+      "singer": "丙",
+      "source": "tx",
+      "albumName": "Alpha",
+      "interval": "01:59"
+    },
+    {
+      "id": "s3",
+      "name": "écho",
+      "singer": "équipe",
+      "source": "kg",
+      "albumName": "",
+      "interval": ""
+    },
+    {
+      "id": "s4",
+      "name": "Echo",
+      "singer": "Equipe",
+      "source": "mg",
+      "albumName": "Étude",
+      "interval": "00:02"
+    },
+    {
+      "id": "s5",
+      "name": "a10",
+      "singer": "Artist",
+      "source": "wy",
+      "interval": "00:10"
+    },
+    {
+      "id": "s6",
+      "name": "a2",
+      "singer": "artist",
+      "source": "kw",
+      "albumName": "album 10",
+      "interval": "1:00:00"
+    },
+    {
+      "id": "s7",
+      "name": "Alpha",
+      "singer": "Same",
+      "source": "tx",
+      "albumName": "album 2",
+      "interval": "0:00"
+    },
+    {
+      "id": "s8",
+      "name": "Alpha",
+      "singer": "Same",
+      "source": "tx",
+      "albumName": "album 2",
+      "interval": "0:00"
+    },
+    {
+      "id": "s9",
+      "name": "가",
+      "singer": "가수",
+      "source": "kg",
+      "albumName": "음반",
+      "interval": "02:00"
+    },
+    {
+      "id": "s10",
+      "name": "나",
+      "singer": "나수",
+      "source": "mg",
+      "albumName": "음반",
+      "interval": "03:00"
+    }
+  ],
+  "sorts": [
+    {
+      "locale": "zh-Hans-CN",
+      "field": "name",
+      "direction": "up",
+      "expected": [
+        "s0",
+        "s1",
+        "s2",
+        "s5",
+        "s6",
+        "s7",
+        "s8",
+        "s3",
+        "s4",
+        "s9",
+        "s10"
+      ]
+    },
+    {
+      "locale": "zh-Hans-CN",
+      "field": "name",
+      "direction": "down",
+      "expected": [
+        "s10",
+        "s9",
+        "s4",
+        "s3",
+        "s7",
+        "s8",
+        "s6",
+        "s5",
+        "s2",
+        "s1",
+        "s0"
+      ]
+    },
+    {
+      "locale": "zh-Hans-CN",
+      "field": "singer",
+      "direction": "up",
+      "expected": [
+        "s2",
+        "s1",
+        "s0",
+        "s6",
+        "s5",
+        "s3",
+        "s4",
+        "s7",
+        "s8",
+        "s9",
+        "s10"
+      ]
+    },
+    {
+      "locale": "zh-Hans-CN",
+      "field": "singer",
+      "direction": "down",
+      "expected": [
+        "s10",
+        "s9",
+        "s7",
+        "s8",
+        "s4",
+        "s3",
+        "s5",
+        "s6",
+        "s0",
+        "s1",
+        "s2"
+      ]
+    },
+    {
+      "locale": "zh-Hans-CN",
+      "field": "albumName",
+      "direction": "up",
+      "expected": [
+        "s0",
+        "s5",
+        "s3",
+        "s6",
+        "s7",
+        "s8",
+        "s2",
+        "s4",
+        "s1",
+        "s9",
+        "s10"
+      ]
+    },
+    {
+      "locale": "zh-Hans-CN",
+      "field": "albumName",
+      "direction": "down",
+      "expected": [
+        "s9",
+        "s10",
+        "s1",
+        "s4",
+        "s2",
+        "s7",
+        "s8",
+        "s6",
+        "s3",
+        "s0",
+        "s5"
+      ]
+    },
+    {
+      "locale": "zh-Hans-CN",
+      "field": "interval",
+      "direction": "up",
+      "expected": [
+        "s0",
+        "s3",
+        "s7",
+        "s8",
+        "s4",
+        "s5",
+        "s2",
+        "s9",
+        "s10",
+        "s1",
+        "s6"
+      ]
+    },
+    {
+      "locale": "zh-Hans-CN",
+      "field": "interval",
+      "direction": "down",
+      "expected": [
+        "s6",
+        "s1",
+        "s10",
+        "s9",
+        "s2",
+        "s5",
+        "s4",
+        "s3",
+        "s7",
+        "s8",
+        "s0"
+      ]
+    },
+    {
+      "locale": "zh-Hans-CN",
+      "field": "source",
+      "direction": "up",
+      "expected": [
+        "s3",
+        "s9",
+        "s1",
+        "s6",
+        "s4",
+        "s10",
+        "s2",
+        "s7",
+        "s8",
+        "s0",
+        "s5"
+      ]
+    },
+    {
+      "locale": "zh-Hans-CN",
+      "field": "source",
+      "direction": "down",
+      "expected": [
+        "s0",
+        "s5",
+        "s2",
+        "s7",
+        "s8",
+        "s4",
+        "s10",
+        "s1",
+        "s6",
+        "s3",
+        "s9"
+      ]
+    },
+    {
+      "locale": "zh-Hant-TW",
+      "field": "name",
+      "direction": "up",
+      "expected": [
+        "s2",
+        "s0",
+        "s1",
+        "s5",
+        "s6",
+        "s7",
+        "s8",
+        "s3",
+        "s4",
+        "s9",
+        "s10"
+      ]
+    },
+    {
+      "locale": "zh-Hant-TW",
+      "field": "name",
+      "direction": "down",
+      "expected": [
+        "s10",
+        "s9",
+        "s4",
+        "s3",
+        "s7",
+        "s8",
+        "s6",
+        "s5",
+        "s1",
+        "s0",
+        "s2"
+      ]
+    },
+    {
+      "locale": "zh-Hant-TW",
+      "field": "singer",
+      "direction": "up",
+      "expected": [
+        "s0",
+        "s2",
+        "s1",
+        "s6",
+        "s5",
+        "s3",
+        "s4",
+        "s7",
+        "s8",
+        "s9",
+        "s10"
+      ]
+    },
+    {
+      "locale": "zh-Hant-TW",
+      "field": "singer",
+      "direction": "down",
+      "expected": [
+        "s10",
+        "s9",
+        "s7",
+        "s8",
+        "s4",
+        "s3",
+        "s5",
+        "s6",
+        "s1",
+        "s2",
+        "s0"
+      ]
+    },
+    {
+      "locale": "zh-Hant-TW",
+      "field": "albumName",
+      "direction": "up",
+      "expected": [
+        "s0",
+        "s5",
+        "s3",
+        "s6",
+        "s7",
+        "s8",
+        "s2",
+        "s4",
+        "s1",
+        "s9",
+        "s10"
+      ]
+    },
+    {
+      "locale": "zh-Hant-TW",
+      "field": "albumName",
+      "direction": "down",
+      "expected": [
+        "s9",
+        "s10",
+        "s1",
+        "s4",
+        "s2",
+        "s7",
+        "s8",
+        "s6",
+        "s3",
+        "s0",
+        "s5"
+      ]
+    },
+    {
+      "locale": "zh-Hant-TW",
+      "field": "interval",
+      "direction": "up",
+      "expected": [
+        "s0",
+        "s3",
+        "s7",
+        "s8",
+        "s4",
+        "s5",
+        "s2",
+        "s9",
+        "s10",
+        "s1",
+        "s6"
+      ]
+    },
+    {
+      "locale": "zh-Hant-TW",
+      "field": "interval",
+      "direction": "down",
+      "expected": [
+        "s6",
+        "s1",
+        "s10",
+        "s9",
+        "s2",
+        "s5",
+        "s4",
+        "s3",
+        "s7",
+        "s8",
+        "s0"
+      ]
+    },
+    {
+      "locale": "zh-Hant-TW",
+      "field": "source",
+      "direction": "up",
+      "expected": [
+        "s3",
+        "s9",
+        "s1",
+        "s6",
+        "s4",
+        "s10",
+        "s2",
+        "s7",
+        "s8",
+        "s0",
+        "s5"
+      ]
+    },
+    {
+      "locale": "zh-Hant-TW",
+      "field": "source",
+      "direction": "down",
+      "expected": [
+        "s0",
+        "s5",
+        "s2",
+        "s7",
+        "s8",
+        "s4",
+        "s10",
+        "s1",
+        "s6",
+        "s3",
+        "s9"
+      ]
+    },
+    {
+      "locale": "en-US",
+      "field": "name",
+      "direction": "up",
+      "expected": [
+        "s5",
+        "s6",
+        "s7",
+        "s8",
+        "s4",
+        "s3",
+        "s9",
+        "s10",
+        "s2",
+        "s0",
+        "s1"
+      ]
+    },
+    {
+      "locale": "en-US",
+      "field": "name",
+      "direction": "down",
+      "expected": [
+        "s1",
+        "s0",
+        "s2",
+        "s10",
+        "s9",
+        "s3",
+        "s4",
+        "s7",
+        "s8",
+        "s6",
+        "s5"
+      ]
+    },
+    {
+      "locale": "en-US",
+      "field": "singer",
+      "direction": "up",
+      "expected": [
+        "s6",
+        "s5",
+        "s4",
+        "s3",
+        "s7",
+        "s8",
+        "s9",
+        "s10",
+        "s2",
+        "s0",
+        "s1"
+      ]
+    },
+    {
+      "locale": "en-US",
+      "field": "singer",
+      "direction": "down",
+      "expected": [
+        "s1",
+        "s0",
+        "s2",
+        "s10",
+        "s9",
+        "s7",
+        "s8",
+        "s3",
+        "s4",
+        "s5",
+        "s6"
+      ]
+    },
+    {
+      "locale": "en-US",
+      "field": "albumName",
+      "direction": "up",
+      "expected": [
+        "s0",
+        "s5",
+        "s3",
+        "s6",
+        "s7",
+        "s8",
+        "s2",
+        "s4",
+        "s1",
+        "s9",
+        "s10"
+      ]
+    },
+    {
+      "locale": "en-US",
+      "field": "albumName",
+      "direction": "down",
+      "expected": [
+        "s9",
+        "s10",
+        "s1",
+        "s4",
+        "s2",
+        "s7",
+        "s8",
+        "s6",
+        "s3",
+        "s0",
+        "s5"
+      ]
+    },
+    {
+      "locale": "en-US",
+      "field": "interval",
+      "direction": "up",
+      "expected": [
+        "s0",
+        "s3",
+        "s7",
+        "s8",
+        "s4",
+        "s5",
+        "s2",
+        "s9",
+        "s10",
+        "s1",
+        "s6"
+      ]
+    },
+    {
+      "locale": "en-US",
+      "field": "interval",
+      "direction": "down",
+      "expected": [
+        "s6",
+        "s1",
+        "s10",
+        "s9",
+        "s2",
+        "s5",
+        "s4",
+        "s3",
+        "s7",
+        "s8",
+        "s0"
+      ]
+    },
+    {
+      "locale": "en-US",
+      "field": "source",
+      "direction": "up",
+      "expected": [
+        "s3",
+        "s9",
+        "s1",
+        "s6",
+        "s4",
+        "s10",
+        "s2",
+        "s7",
+        "s8",
+        "s0",
+        "s5"
+      ]
+    },
+    {
+      "locale": "en-US",
+      "field": "source",
+      "direction": "down",
+      "expected": [
+        "s0",
+        "s5",
+        "s2",
+        "s7",
+        "s8",
+        "s4",
+        "s10",
+        "s1",
+        "s6",
+        "s3",
+        "s9"
+      ]
+    },
+    {
+      "locale": "ko-KR",
+      "field": "name",
+      "direction": "up",
+      "expected": [
+        "s9",
+        "s10",
+        "s0",
+        "s2",
+        "s1",
+        "s5",
+        "s6",
+        "s7",
+        "s8",
+        "s4",
+        "s3"
+      ]
+    },
+    {
+      "locale": "ko-KR",
+      "field": "name",
+      "direction": "down",
+      "expected": [
+        "s3",
+        "s4",
+        "s7",
+        "s8",
+        "s6",
+        "s5",
+        "s1",
+        "s2",
+        "s0",
+        "s10",
+        "s9"
+      ]
+    },
+    {
+      "locale": "ko-KR",
+      "field": "singer",
+      "direction": "up",
+      "expected": [
+        "s9",
+        "s1",
+        "s10",
+        "s2",
+        "s0",
+        "s6",
+        "s5",
+        "s4",
+        "s3",
+        "s7",
+        "s8"
+      ]
+    },
+    {
+      "locale": "ko-KR",
+      "field": "singer",
+      "direction": "down",
+      "expected": [
+        "s7",
+        "s8",
+        "s3",
+        "s4",
+        "s5",
+        "s6",
+        "s0",
+        "s2",
+        "s10",
+        "s1",
+        "s9"
+      ]
+    },
+    {
+      "locale": "ko-KR",
+      "field": "albumName",
+      "direction": "up",
+      "expected": [
+        "s0",
+        "s5",
+        "s3",
+        "s9",
+        "s10",
+        "s6",
+        "s7",
+        "s8",
+        "s2",
+        "s4",
+        "s1"
+      ]
+    },
+    {
+      "locale": "ko-KR",
+      "field": "albumName",
+      "direction": "down",
+      "expected": [
+        "s1",
+        "s4",
+        "s2",
+        "s7",
+        "s8",
+        "s6",
+        "s9",
+        "s10",
+        "s3",
+        "s0",
+        "s5"
+      ]
+    },
+    {
+      "locale": "ko-KR",
+      "field": "interval",
+      "direction": "up",
+      "expected": [
+        "s0",
+        "s3",
+        "s7",
+        "s8",
+        "s4",
+        "s5",
+        "s2",
+        "s9",
+        "s10",
+        "s1",
+        "s6"
+      ]
+    },
+    {
+      "locale": "ko-KR",
+      "field": "interval",
+      "direction": "down",
+      "expected": [
+        "s6",
+        "s1",
+        "s10",
+        "s9",
+        "s2",
+        "s5",
+        "s4",
+        "s3",
+        "s7",
+        "s8",
+        "s0"
+      ]
+    },
+    {
+      "locale": "ko-KR",
+      "field": "source",
+      "direction": "up",
+      "expected": [
+        "s3",
+        "s9",
+        "s1",
+        "s6",
+        "s4",
+        "s10",
+        "s2",
+        "s7",
+        "s8",
+        "s0",
+        "s5"
+      ]
+    },
+    {
+      "locale": "ko-KR",
+      "field": "source",
+      "direction": "down",
+      "expected": [
+        "s0",
+        "s5",
+        "s2",
+        "s7",
+        "s8",
+        "s4",
+        "s10",
+        "s1",
+        "s6",
+        "s3",
+        "s9"
+      ]
+    }
+  ],
+  "time_rows": [
+    {
+      "id": "t0",
+      "name": "Time 0",
+      "singer": "",
+      "source": "kw",
+      "interval": "02:00"
+    },
+    {
+      "id": "t1",
+      "name": "Time 1",
+      "singer": "",
+      "source": "kw",
+      "interval": "--/--"
+    },
+    {
+      "id": "t2",
+      "name": "Time 2",
+      "singer": "",
+      "source": "kw",
+      "interval": "00:30"
+    },
+    {
+      "id": "t3",
+      "name": "Time 3",
+      "singer": "",
+      "source": "kw",
+      "interval": "01:00"
+    },
+    {
+      "id": "t4",
+      "name": "Time 4",
+      "singer": "",
+      "source": "kw",
+      "interval": "01:02tail"
+    },
+    {
+      "id": "t5",
+      "name": "Time 5",
+      "singer": "",
+      "source": "kw",
+      "interval": null
+    },
+    {
+      "id": "t6",
+      "name": "Time 6",
+      "singer": "",
+      "source": "kw",
+      "interval": ""
+    },
+    {
+      "id": "t7",
+      "name": "Time 7",
+      "singer": "",
+      "source": "kw",
+      "interval": "1:02.5"
+    },
+    {
+      "id": "t8",
+      "name": "Time 8",
+      "singer": "",
+      "source": "kw",
+      "interval": "00:05"
+    }
+  ],
+  "time_sorts": [
+    {
+      "direction": "up",
+      "expected": [
+        "t5",
+        "t6",
+        "t8",
+        "t0",
+        "t1",
+        "t2",
+        "t3",
+        "t4",
+        "t7"
+      ]
+    },
+    {
+      "direction": "down",
+      "expected": [
+        "t0",
+        "t1",
+        "t4",
+        "t7",
+        "t3",
+        "t2",
+        "t8",
+        "t6",
+        "t5"
+      ]
+    }
+  ],
+  "duplicate_rows": [
+    {
+      "id": "d0",
+      "name": "Song",
+      "singer": "Singer 0",
+      "source": "wy"
+    },
+    {
+      "id": "d1",
+      "name": "SONG (Live)",
+      "singer": "Singer 1",
+      "source": "kw"
+    },
+    {
+      "id": "d2",
+      "name": "Song （Explicit）",
+      "singer": "Singer 2",
+      "source": "wy"
+    },
+    {
+      "id": "d3",
+      "name": "Song Live",
+      "singer": "Singer 3",
+      "source": "kw"
+    },
+    {
+      "id": "d4",
+      "name": "A (x) B (y)",
+      "singer": "Singer 4",
+      "source": "wy"
+    },
+    {
+      "id": "d5",
+      "name": "A B",
+      "singer": "Singer 5",
+      "source": "kw"
+    },
+    {
+      "id": "d6",
+      "name": "a-b",
+      "singer": "Singer 6",
+      "source": "wy"
+    },
+    {
+      "id": "d7",
+      "name": "A (Live）",
+      "singer": "Singer 7",
+      "source": "kw"
+    },
+    {
+      "id": "d8",
+      "name": "A",
+      "singer": "Singer 8",
+      "source": "wy"
+    },
+    {
+      "id": "d9",
+      "name": "()",
+      "singer": "Singer 9",
+      "source": "kw"
+    },
+    {
+      "id": "d10",
+      "name": "（x）",
+      "singer": "Singer 10",
+      "source": "wy"
+    },
+    {
+      "id": "d11",
+      "name": "（y）",
+      "singer": "Singer 11",
+      "source": "kw"
+    },
+    {
+      "id": "d12",
+      "name": "  Écho ",
+      "singer": "Singer 12",
+      "source": "wy"
+    },
+    {
+      "id": "d13",
+      "name": "ÉCHO",
+      "singer": "Singer 13",
+      "source": "kw"
+    },
+    {
+      "id": "d14",
+      "name": "演示 (现场)",
+      "singer": "Singer 14",
+      "source": "wy"
+    },
+    {
+      "id": "d15",
+      "name": "演示",
+      "singer": "Singer 15",
+      "source": "kw"
+    },
+    {
+      "id": "d16",
+      "name": "á",
+      "singer": "Singer 16",
+      "source": "wy"
+    },
+    {
+      "id": "d17",
+      "name": "á",
+      "singer": "Singer 17",
+      "source": "kw"
+    },
+    {
+      "id": "d18",
+      "name": "á",
+      "singer": "Singer 18",
+      "source": "wy"
+    },
+    {
+      "id": "d19",
+      "name": "á",
+      "singer": "Singer 19",
+      "source": "kw"
+    }
+  ],
+  "duplicate_cases": [
+    {
+      "locale": "zh-Hans-CN",
+      "filter_variants": true,
+      "expected": [
+        {
+          "index": 14,
+          "id": "d14",
+          "key": "演示"
+        },
+        {
+          "index": 15,
+          "id": "d15",
+          "key": "演示"
+        },
+        {
+          "index": 17,
+          "id": "d17",
+          "key": "á"
+        },
+        {
+          "index": 18,
+          "id": "d18",
+          "key": "á"
+        },
+        {
+          "index": 16,
+          "id": "d16",
+          "key": "á"
+        },
+        {
+          "index": 19,
+          "id": "d19",
+          "key": "á"
+        },
+        {
+          "index": 4,
+          "id": "d4",
+          "key": "a"
+        },
+        {
+          "index": 7,
+          "id": "d7",
+          "key": "a"
+        },
+        {
+          "index": 8,
+          "id": "d8",
+          "key": "a"
+        },
+        {
+          "index": 5,
+          "id": "d5",
+          "key": "ab"
+        },
+        {
+          "index": 6,
+          "id": "d6",
+          "key": "ab"
+        },
+        {
+          "index": 12,
+          "id": "d12",
+          "key": "écho"
+        },
+        {
+          "index": 13,
+          "id": "d13",
+          "key": "écho"
+        },
+        {
+          "index": 0,
+          "id": "d0",
+          "key": "song"
+        },
+        {
+          "index": 1,
+          "id": "d1",
+          "key": "song"
+        },
+        {
+          "index": 2,
+          "id": "d2",
+          "key": "song"
+        }
+      ]
+    },
+    {
+      "locale": "zh-Hans-CN",
+      "filter_variants": false,
+      "expected": [
+        {
+          "index": 17,
+          "id": "d17",
+          "key": "á"
+        },
+        {
+          "index": 18,
+          "id": "d18",
+          "key": "á"
+        },
+        {
+          "index": 16,
+          "id": "d16",
+          "key": "á"
+        },
+        {
+          "index": 19,
+          "id": "d19",
+          "key": "á"
+        },
+        {
+          "index": 12,
+          "id": "d12",
+          "key": "écho"
+        },
+        {
+          "index": 13,
+          "id": "d13",
+          "key": "écho"
+        }
+      ]
+    },
+    {
+      "locale": "en-US",
+      "filter_variants": true,
+      "expected": [
+        {
+          "index": 4,
+          "id": "d4",
+          "key": "a"
+        },
+        {
+          "index": 7,
+          "id": "d7",
+          "key": "a"
+        },
+        {
+          "index": 8,
+          "id": "d8",
+          "key": "a"
+        },
+        {
+          "index": 17,
+          "id": "d17",
+          "key": "á"
+        },
+        {
+          "index": 18,
+          "id": "d18",
+          "key": "á"
+        },
+        {
+          "index": 16,
+          "id": "d16",
+          "key": "á"
+        },
+        {
+          "index": 19,
+          "id": "d19",
+          "key": "á"
+        },
+        {
+          "index": 5,
+          "id": "d5",
+          "key": "ab"
+        },
+        {
+          "index": 6,
+          "id": "d6",
+          "key": "ab"
+        },
+        {
+          "index": 12,
+          "id": "d12",
+          "key": "écho"
+        },
+        {
+          "index": 13,
+          "id": "d13",
+          "key": "écho"
+        },
+        {
+          "index": 0,
+          "id": "d0",
+          "key": "song"
+        },
+        {
+          "index": 1,
+          "id": "d1",
+          "key": "song"
+        },
+        {
+          "index": 2,
+          "id": "d2",
+          "key": "song"
+        },
+        {
+          "index": 14,
+          "id": "d14",
+          "key": "演示"
+        },
+        {
+          "index": 15,
+          "id": "d15",
+          "key": "演示"
+        }
+      ]
+    },
+    {
+      "locale": "en-US",
+      "filter_variants": false,
+      "expected": [
+        {
+          "index": 17,
+          "id": "d17",
+          "key": "á"
+        },
+        {
+          "index": 18,
+          "id": "d18",
+          "key": "á"
+        },
+        {
+          "index": 16,
+          "id": "d16",
+          "key": "á"
+        },
+        {
+          "index": 19,
+          "id": "d19",
+          "key": "á"
+        },
+        {
+          "index": 12,
+          "id": "d12",
+          "key": "écho"
+        },
+        {
+          "index": 13,
+          "id": "d13",
+          "key": "écho"
+        }
+      ]
+    }
+  ],
+  "search_rows": [
+    {
+      "id": "q0",
+      "name": "Able",
+      "singer": "",
+      "source": "kw",
+      "albumName": ""
+    },
+    {
+      "id": "q1",
+      "name": "Zebra",
+      "singer": "CAB",
+      "source": "tx",
+      "albumName": ""
+    },
+    {
+      "id": "q2",
+      "name": "Else",
+      "singer": "X",
+      "source": "wy",
+      "albumName": "ABC"
+    },
+    {
+      "id": "q3",
+      "name": "aXb",
+      "singer": "",
+      "source": "kg",
+      "albumName": null
+    },
+    {
+      "id": "q4",
+      "name": "AxB",
+      "singer": "",
+      "source": "mg",
+      "albumName": ""
+    },
+    {
+      "id": "q5",
+      "name": "a",
+      "singer": "b",
+      "source": "kw",
+      "albumName": ""
+    },
+    {
+      "id": "q6",
+      "name": "a?b",
+      "singer": "",
+      "source": "kw",
+      "albumName": ""
+    },
+    {
+      "id": "q7",
+      "name": "aXX?YYb",
+      "singer": "",
+      "source": "kw",
+      "albumName": ""
+    },
+    {
+      "id": "q8",
+      "name": "a\nb",
+      "singer": "",
+      "source": "kw",
+      "albumName": ""
+    },
+    {
+      "id": "q9",
+      "name": "🎵a🎵b",
+      "singer": "",
+      "source": "kw",
+      "albumName": ""
+    },
+    {
+      "id": "q10",
+      "name": "  song  ",
+      "singer": "",
+      "source": "kw",
+      "albumName": ""
+    },
+    {
+      "id": "q11",
+      "name": "张甲三",
+      "singer": "乙",
+      "source": "kw",
+      "albumName": "丙"
+    },
+    {
+      "id": "q12",
+      "name": "aYb",
+      "singer": "",
+      "source": "kw",
+      "albumName": ""
+    },
+    {
+      "id": "q13",
+      "name": "a.b",
+      "singer": "",
+      "source": "kw",
+      "albumName": ""
+    },
+    {
+      "id": "q14",
+      "name": "[ab]",
+      "singer": "",
+      "source": "kw",
+      "albumName": ""
+    },
+    {
+      "id": "q15",
+      "name": "same",
+      "singer": "same",
+      "source": "kw",
+      "albumName": "same"
+    }
+  ],
+  "searches": [
+    {
+      "text": "ab",
+      "expected": [
+        {
+          "index": 0,
+          "id": "q0",
+          "kind": "name",
+          "score": null
+        },
+        {
+          "index": 14,
+          "id": "q14",
+          "kind": "name",
+          "score": null
+        },
+        {
+          "index": 1,
+          "id": "q1",
+          "kind": "singer",
+          "score": null
+        },
+        {
+          "index": 2,
+          "id": "q2",
+          "kind": "album",
+          "score": null
+        },
+        {
+          "index": 5,
+          "id": "q5",
+          "kind": "fuzzy",
+          "score": 1
+        },
+        {
+          "index": 3,
+          "id": "q3",
+          "kind": "fuzzy",
+          "score": 0.6666666666666667
+        },
+        {
+          "index": 6,
+          "id": "q6",
+          "kind": "fuzzy",
+          "score": 0.6666666666666667
+        },
+        {
+          "index": 12,
+          "id": "q12",
+          "kind": "fuzzy",
+          "score": 0.6666666666666667
+        },
+        {
+          "index": 13,
+          "id": "q13",
+          "kind": "fuzzy",
+          "score": 0.6666666666666667
+        },
+        {
+          "index": 9,
+          "id": "q9",
+          "kind": "fuzzy",
+          "score": 0.33333333333333337
+        },
+        {
+          "index": 7,
+          "id": "q7",
+          "kind": "fuzzy",
+          "score": 0.2857142857142857
+        },
+        {
+          "index": 4,
+          "id": "q4",
+          "kind": "fuzzy",
+          "score": 0
+        }
+      ]
+    },
+    {
+      "text": "AB",
+      "expected": [
+        {
+          "index": 0,
+          "id": "q0",
+          "kind": "name",
+          "score": null
+        },
+        {
+          "index": 14,
+          "id": "q14",
+          "kind": "name",
+          "score": null
+        },
+        {
+          "index": 1,
+          "id": "q1",
+          "kind": "singer",
+          "score": null
+        },
+        {
+          "index": 2,
+          "id": "q2",
+          "kind": "album",
+          "score": null
+        },
+        {
+          "index": 4,
+          "id": "q4",
+          "kind": "fuzzy",
+          "score": 0.6666666666666667
+        },
+        {
+          "index": 3,
+          "id": "q3",
+          "kind": "fuzzy",
+          "score": 0
+        },
+        {
+          "index": 5,
+          "id": "q5",
+          "kind": "fuzzy",
+          "score": 0
+        },
+        {
+          "index": 6,
+          "id": "q6",
+          "kind": "fuzzy",
+          "score": 0
+        },
+        {
+          "index": 7,
+          "id": "q7",
+          "kind": "fuzzy",
+          "score": 0
+        },
+        {
+          "index": 9,
+          "id": "q9",
+          "kind": "fuzzy",
+          "score": 0
+        },
+        {
+          "index": 12,
+          "id": "q12",
+          "kind": "fuzzy",
+          "score": 0
+        },
+        {
+          "index": 13,
+          "id": "q13",
+          "kind": "fuzzy",
+          "score": 0
+        }
+      ]
+    },
+    {
+      "text": "a?b",
+      "expected": [
+        {
+          "index": 6,
+          "id": "q6",
+          "kind": "name",
+          "score": null
+        },
+        {
+          "index": 7,
+          "id": "q7",
+          "kind": "fuzzy",
+          "score": 0.4285714285714286
+        }
+      ]
+    },
+    {
+      "text": ".",
+      "expected": [
+        {
+          "index": 13,
+          "id": "q13",
+          "kind": "name",
+          "score": null
+        }
+      ]
+    },
+    {
+      "text": "[ab]",
+      "expected": [
+        {
+          "index": 14,
+          "id": "q14",
+          "kind": "name",
+          "score": null
+        }
+      ]
+    },
+    {
+      "text": " song ",
+      "expected": [
+        {
+          "index": 10,
+          "id": "q10",
+          "kind": "name",
+          "score": null
+        }
+      ]
+    },
+    {
+      "text": "🎵b",
+      "expected": [
+        {
+          "index": 9,
+          "id": "q9",
+          "kind": "name",
+          "score": null
+        }
+      ]
+    },
+    {
+      "text": "张三",
+      "expected": [
+        {
+          "index": 11,
+          "id": "q11",
+          "kind": "fuzzy",
+          "score": 0.4
+        }
+      ]
+    },
+    {
+      "text": "same",
+      "expected": [
+        {
+          "index": 15,
+          "id": "q15",
+          "kind": "name",
+          "score": null
+        }
+      ]
+    },
+    {
+      "text": "",
+      "expected": [
+        {
+          "index": 0,
+          "id": "q0",
+          "kind": "name",
+          "score": null
+        },
+        {
+          "index": 1,
+          "id": "q1",
+          "kind": "name",
+          "score": null
+        },
+        {
+          "index": 2,
+          "id": "q2",
+          "kind": "name",
+          "score": null
+        },
+        {
+          "index": 3,
+          "id": "q3",
+          "kind": "name",
+          "score": null
+        },
+        {
+          "index": 4,
+          "id": "q4",
+          "kind": "name",
+          "score": null
+        },
+        {
+          "index": 5,
+          "id": "q5",
+          "kind": "name",
+          "score": null
+        },
+        {
+          "index": 6,
+          "id": "q6",
+          "kind": "name",
+          "score": null
+        },
+        {
+          "index": 7,
+          "id": "q7",
+          "kind": "name",
+          "score": null
+        },
+        {
+          "index": 8,
+          "id": "q8",
+          "kind": "name",
+          "score": null
+        },
+        {
+          "index": 9,
+          "id": "q9",
+          "kind": "name",
+          "score": null
+        },
+        {
+          "index": 10,
+          "id": "q10",
+          "kind": "name",
+          "score": null
+        },
+        {
+          "index": 11,
+          "id": "q11",
+          "kind": "name",
+          "score": null
+        },
+        {
+          "index": 12,
+          "id": "q12",
+          "kind": "name",
+          "score": null
+        },
+        {
+          "index": 13,
+          "id": "q13",
+          "kind": "name",
+          "score": null
+        },
+        {
+          "index": 14,
+          "id": "q14",
+          "kind": "name",
+          "score": null
+        },
+        {
+          "index": 15,
+          "id": "q15",
+          "kind": "name",
+          "score": null
+        }
+      ]
+    },
+    {
+      "text": "a\nb",
+      "expected": [
+        {
+          "index": 8,
+          "id": "q8",
+          "kind": "name",
+          "score": null
+        }
+      ]
+    }
+  ],
+  "shuffles": [
+    {
+      "length": 0,
+      "draws": [],
+      "expected": []
+    },
+    {
+      "length": 1,
+      "draws": [
+        {
+          "upper": 1,
+          "index": 0
+        }
+      ],
+      "expected": [
+        0
+      ]
+    },
+    {
+      "length": 8,
+      "draws": [
+        {
+          "upper": 8,
+          "index": 2
+        },
+        {
+          "upper": 7,
+          "index": 6
+        },
+        {
+          "upper": 6,
+          "index": 0
+        },
+        {
+          "upper": 5,
+          "index": 3
+        },
+        {
+          "upper": 4,
+          "index": 1
+        },
+        {
+          "upper": 3,
+          "index": 2
+        },
+        {
+          "upper": 2,
+          "index": 0
+        },
+        {
+          "upper": 1,
+          "index": 0
+        }
+      ],
+      "expected": [
+        4,
+        5,
+        7,
+        1,
+        3,
+        0,
+        6,
+        2
+      ]
+    }
+  ]
+}

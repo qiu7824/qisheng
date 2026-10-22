@@ -1,0 +1,21 @@
+{
+  "result": "BLOCKED",
+  "reason": "Audio device/load failed: Some(\"无法打开音频输出设备：Could not find any output device\")",
+  "static_validation": "PASS: isolated; throw statement not executed; remains unapproved",
+  "damaged_source": "PASS: rejected",
+  "worker_cancel": "PASS: idempotent; terminated worker cannot resolve",
+  "initialization": "PASS: actual isolated child; Windows Job attached",
+  "lx_request": "PASS: real callback HTTP GET /catalog.json; flattened legacy fields",
+  "restart": "PASS: script, approval, selection and volume restored",
+  "audio_output": "FAILED: real default output device could not start",
+  "play_pause_seek_next": "NOT RUN",
+  "http_404_audio_recovery": "NOT RUN",
+  "playback": {
+    "status": "Error",
+    "track_id": "tone-1",
+    "position_seconds": 0.0,
+    "duration_seconds": 0.0,
+    "volume": 0.15000000596046448,
+    "error": "无法打开音频输出设备：Could not find any output device"
+  }
+}

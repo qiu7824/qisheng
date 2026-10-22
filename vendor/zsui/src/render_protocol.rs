@@ -1,0 +1,1812 @@
+use serde::{Deserialize, Serialize};
+use std::{fmt, sync::Arc};
+
+use crate::{
+    geometry::{Rect, Size},
+    style::ZsuiThemeMode,
+    ZsIcon,
+};
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Color {
+    pub r: u8,
+    pub g: u8,
+    pub b: u8,
+    pub a: u8,
+}
+
+impl Color {
+    pub const fn rgb(r: u8, g: u8, b: u8) -> Self {
+        Self { r, g, b, a: 255 }
+    }
+
+    pub const fn rgba(r: u8, g: u8, b: u8, a: u8) -> Self {
+        Self { r, g, b, a }
+    }
+
+    /// Parses the canonical platform-independent `#RRGGBBAA` representation.
+    ///
+    /// Lowercase, shorthand and RGB-only forms are intentionally rejected so
+    /// serialized UI state has one deterministic spelling.
+    pub fn parse_hex_rgba(value: &str) -> Option<Self> {
+        fn nibble(value: u8) -> Option<u8> {
+            match value {
+                b'0'..=b'9' => Some(value - b'0'),
+                b'A'..=b'F' => Some(value - b'A' + 10),
+                _ => None,
+            }
+        }
+
+        let bytes = value.as_bytes();
+        if bytes.len() != 9 || bytes[0] != b'#' {
+            return None;
+        }
+        let channel =
+            |offset: usize| Some((nibble(bytes[offset])? << 4) | nibble(bytes[offset + 1])?);
+        Some(Self::rgba(
+            channel(1)?,
+            channel(3)?,
+            channel(5)?,
+            channel(7)?,
+        ))
+    }
+
+    /// Returns the canonical uppercase `#RRGGBBAA` representation.
+    pub fn hex_rgba(self) -> String {
+        format!("#{:02X}{:02X}{:02X}{:02X}", self.r, self.g, self.b, self.a)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum TextWeight {
+    /// Resolve the role's native default weight in the active backend.
+    Automatic,
+    Regular,
+    Medium,
+    Semibold,
+    Bold,
+}
+
+/// Native desktop typography family used to resolve semantic text roles.
+///
+/// Applications keep using [`TextRole`]. The active backend selects this
+/// profile so a semantic body, caption or title does not inherit Windows
+/// Fluent point sizes on AppKit or GTK.
+pub type ZsTypographyPlatformStyle = crate::ZsPlatformStyle;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum HorizontalAlign {
+    Start,
+    Center,
+    End,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum VerticalAlign {
+    Start,
+    Center,
+    End,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum TextWrap {
+    NoWrap,
+    Word,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum TextRole {
+    Body,
+    Caption,
+    BodyLarge,
+    Subtitle,
+    /// Native application/window title used by framework chrome.
+    ///
+    /// This is intentionally separate from content `Title`: desktop shells
+    /// commonly use a compact title ramp (ZSClip uses a 24/32 Windows title)
+    /// while document content may legitimately request a larger heading.
+    WindowTitle,
+    Title,
+    TitleLarge,
+    Display,
+    Button,
+    Icon,
+    Monospace,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct ZsTypographyMetrics {
+    pub size: f32,
+    pub line_height: f32,
+    pub default_weight: TextWeight,
+}
+
+impl ZsTypographyMetrics {
+    pub const fn new(size: f32, line_height: f32, default_weight: TextWeight) -> Self {
+        Self {
+            size,
+            line_height,
+            default_weight,
+        }
+    }
+}
+
+/// Resolved metrics for the platform UI font used by native proof and paint.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct NativeFontMetrics {
+    pub size: f32,
+    pub line_height: f32,
+    pub ascent: Option<f32>,
+    pub descent: Option<f32>,
+    pub leading: Option<f32>,
+}
+
+impl NativeFontMetrics {
+    pub const fn from_typography(metrics: ZsTypographyMetrics) -> Self {
+        Self {
+            size: metrics.size,
+            line_height: metrics.line_height,
+            ascent: None,
+            descent: None,
+            leading: None,
+        }
+    }
+
+    pub const fn with_vertical_metrics(mut self, ascent: f32, descent: f32, leading: f32) -> Self {
+        self.ascent = Some(ascent);
+        self.descent = Some(descent);
+        self.leading = Some(leading);
+        self
+    }
+}
+
+/// Backend-resolved typography profile shared by native layout, paint and proof.
+///
+/// Applications keep declaring semantic [`TextRole`] values. Each backend owns
+/// the actual system families and text rasterizer recorded here, while the
+/// framework keeps the role ramp and the live accessibility scale consistent.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct NativeTypographyProfile {
+    pub platform: ZsTypographyPlatformStyle,
+    pub source: String,
+    pub configured_ui_font: Option<String>,
+    pub ui_font_family: String,
+    pub small_font_family: String,
+    pub display_font_family: String,
+    pub monospace_font_family: String,
+    pub icon_font_family: String,
+    pub typography_scale: f32,
+    pub body_metrics: NativeFontMetrics,
+    pub rasterization: String,
+}
+
+impl NativeTypographyProfile {
+    pub fn new(
+        platform: ZsTypographyPlatformStyle,
+        source: impl Into<String>,
+        ui_font_family: impl Into<String>,
+        monospace_font_family: impl Into<String>,
+        icon_font_family: impl Into<String>,
+        typography_scale: f32,
+        rasterization: impl Into<String>,
+    ) -> Self {
+        let ui_font_family = ui_font_family.into();
+        let typography_scale = normalized_typography_scale(typography_scale);
+        Self {
+            platform,
+            source: source.into(),
+            configured_ui_font: None,
+            small_font_family: ui_font_family.clone(),
+            display_font_family: ui_font_family.clone(),
+            ui_font_family,
+            monospace_font_family: monospace_font_family.into(),
+            icon_font_family: icon_font_family.into(),
+            typography_scale,
+            body_metrics: NativeFontMetrics::from_typography(scaled_typography_metrics(
+                TextRole::Body.metrics_for(platform),
+                typography_scale,
+            )),
+            rasterization: rasterization.into(),
+        }
+    }
+
+    pub fn fallback(platform: ZsTypographyPlatformStyle, typography_scale: f32) -> Self {
+        let fallback =
+            crate::platform_component_profile::PlatformTypographyProfile::for_platform(platform)
+                .fallback();
+        Self::new(
+            platform,
+            fallback.source,
+            fallback.ui_font_family,
+            fallback.monospace_font_family,
+            fallback.icon_font_family,
+            typography_scale,
+            fallback.rasterization,
+        )
+        .with_role_families(fallback.small_font_family, fallback.display_font_family)
+    }
+
+    pub fn with_configured_ui_font(mut self, configured_ui_font: impl Into<String>) -> Self {
+        self.configured_ui_font = Some(configured_ui_font.into());
+        self
+    }
+
+    pub fn with_role_families(
+        mut self,
+        small_font_family: impl Into<String>,
+        display_font_family: impl Into<String>,
+    ) -> Self {
+        self.small_font_family = small_font_family.into();
+        self.display_font_family = display_font_family.into();
+        self
+    }
+
+    pub fn with_typography_scale(mut self, typography_scale: f32) -> Self {
+        let typography_scale = normalized_typography_scale(typography_scale);
+        let previous_scale = self.typography_scale.max(0.001);
+        let vertical_scale = typography_scale / previous_scale;
+        self.typography_scale = typography_scale;
+        self.body_metrics = NativeFontMetrics {
+            size: TextRole::Body.metrics_for(self.platform).size * typography_scale,
+            line_height: TextRole::Body.metrics_for(self.platform).line_height * typography_scale,
+            ascent: self.body_metrics.ascent.map(|value| value * vertical_scale),
+            descent: self
+                .body_metrics
+                .descent
+                .map(|value| value * vertical_scale),
+            leading: self
+                .body_metrics
+                .leading
+                .map(|value| value * vertical_scale),
+        };
+        self
+    }
+
+    pub fn with_body_vertical_metrics(mut self, ascent: f32, descent: f32, leading: f32) -> Self {
+        self.body_metrics = self
+            .body_metrics
+            .with_vertical_metrics(ascent, descent, leading);
+        self
+    }
+
+    pub fn metrics_for(&self, role: TextRole) -> ZsTypographyMetrics {
+        scaled_typography_metrics(role.metrics_for(self.platform), self.typography_scale)
+    }
+
+    pub fn font_family_for(&self, role: TextRole) -> &str {
+        semantic_font_family_for_role(
+            role,
+            &self.ui_font_family,
+            &self.small_font_family,
+            &self.display_font_family,
+            &self.monospace_font_family,
+            &self.icon_font_family,
+        )
+    }
+}
+
+pub(crate) fn semantic_font_family_for_role<'a>(
+    role: TextRole,
+    ui_font_family: &'a str,
+    small_font_family: &'a str,
+    display_font_family: &'a str,
+    monospace_font_family: &'a str,
+    icon_font_family: &'a str,
+) -> &'a str {
+    match role {
+        TextRole::Monospace => monospace_font_family,
+        TextRole::Icon => icon_font_family,
+        TextRole::Caption => small_font_family,
+        TextRole::Subtitle
+        | TextRole::WindowTitle
+        | TextRole::Title
+        | TextRole::TitleLarge
+        | TextRole::Display => display_font_family,
+        _ => ui_font_family,
+    }
+}
+
+fn normalized_typography_scale(scale: f32) -> f32 {
+    f32::from(normalize_typography_scale_per_mille(scale)) / 1_000.0
+}
+
+fn scaled_typography_metrics(
+    metrics: ZsTypographyMetrics,
+    typography_scale: f32,
+) -> ZsTypographyMetrics {
+    ZsTypographyMetrics::new(
+        metrics.size * typography_scale,
+        metrics.line_height * typography_scale,
+        metrics.default_weight,
+    )
+}
+
+impl TextRole {
+    /// Returns the Windows Fluent fallback size in device-independent pixels.
+    ///
+    /// Native framework layout and render code should use [`Self::metrics_for`]
+    /// so AppKit and GTK do not inherit this Windows type ramp.
+    pub const fn size(self) -> f32 {
+        match self {
+            Self::Caption => 12.0,
+            Self::Body | Self::Button => 14.0,
+            Self::Icon => 16.0,
+            Self::Monospace => 13.0,
+            Self::BodyLarge => 18.0,
+            Self::Subtitle => 20.0,
+            Self::WindowTitle => 24.0,
+            Self::Title => 28.0,
+            Self::TitleLarge => 40.0,
+            Self::Display => 68.0,
+        }
+    }
+
+    /// Returns the Windows Fluent fallback line box in device-independent pixels.
+    ///
+    /// Native framework layout and render code should use [`Self::metrics_for`].
+    pub const fn line_height(self) -> f32 {
+        match self {
+            Self::Caption => 16.0,
+            Self::Body | Self::Button | Self::Icon => 20.0,
+            Self::Monospace => 18.0,
+            Self::BodyLarge => 24.0,
+            Self::Subtitle => 28.0,
+            Self::WindowTitle => 32.0,
+            Self::Title => 36.0,
+            Self::TitleLarge => 52.0,
+            Self::Display => 92.0,
+        }
+    }
+
+    pub const fn default_weight(self) -> TextWeight {
+        match self {
+            Self::Subtitle | Self::WindowTitle | Self::Title | Self::TitleLarge | Self::Display => {
+                TextWeight::Semibold
+            }
+            _ => TextWeight::Regular,
+        }
+    }
+
+    /// Resolves one semantic role through the native desktop type system.
+    ///
+    /// The macOS values are the AppKit text-style sizes and line heights from
+    /// Apple's macOS typography table. GTK values follow the documented
+    /// libadwaita relative type classes over the standard 14-logical-pixel UI
+    /// base; the GTK renderer can still select the actual configured family.
+    pub const fn metrics_for(self, platform: ZsTypographyPlatformStyle) -> ZsTypographyMetrics {
+        crate::platform_component_profile::PlatformTypographyProfile::for_platform(platform)
+            .metrics(self)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ColorRole {
+    PrimaryText,
+    SecondaryText,
+    DisabledText,
+    Accent,
+    AccentText,
+    Surface,
+    SurfaceRaised,
+    Control,
+    Border,
+    StrongStroke,
+    Success,
+    Warning,
+    Danger,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SemanticTextStyle {
+    pub role: TextRole,
+    pub color: ColorRole,
+    pub weight: TextWeight,
+    pub horizontal_align: HorizontalAlign,
+    pub vertical_align: VerticalAlign,
+    pub wrap: TextWrap,
+    pub ellipsis: bool,
+}
+
+impl SemanticTextStyle {
+    pub const fn for_role(role: TextRole) -> Self {
+        Self {
+            role,
+            color: ColorRole::PrimaryText,
+            weight: TextWeight::Automatic,
+            horizontal_align: HorizontalAlign::Start,
+            vertical_align: VerticalAlign::Center,
+            wrap: TextWrap::NoWrap,
+            ellipsis: true,
+        }
+    }
+
+    pub const fn body() -> Self {
+        Self::for_role(TextRole::Body)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TextStyle {
+    pub font_family: String,
+    pub size: f32,
+    #[serde(default)]
+    pub line_height: f32,
+    /// Original semantic role retained for native text-style APIs.
+    #[serde(default)]
+    pub semantic_role: Option<TextRole>,
+    pub weight: TextWeight,
+    pub color: Color,
+    pub horizontal_align: HorizontalAlign,
+    pub vertical_align: VerticalAlign,
+    pub wrap: TextWrap,
+    pub ellipsis: bool,
+}
+
+impl TextStyle {
+    pub fn line(font_family: impl Into<String>, size: f32, color: Color) -> Self {
+        Self {
+            font_family: font_family.into(),
+            size,
+            line_height: 0.0,
+            semantic_role: None,
+            weight: TextWeight::Regular,
+            color,
+            horizontal_align: HorizontalAlign::Start,
+            vertical_align: VerticalAlign::Center,
+            wrap: TextWrap::NoWrap,
+            ellipsis: true,
+        }
+    }
+}
+
+pub trait NativeStyleResolver {
+    fn resolve_text_style(&self, style: SemanticTextStyle) -> TextStyle;
+}
+
+/// Resolve semantic text through the host's typography profile.
+///
+/// Backends own their native color surface, but share family selection,
+/// role metrics, weight and layout flags. Applications therefore stay on
+/// `TextRole` values while each host supplies the system font it discovered.
+#[allow(dead_code)]
+pub(crate) fn resolve_semantic_text_style(
+    metrics: ZsTypographyMetrics,
+    font_family: &str,
+    color: Color,
+    style: SemanticTextStyle,
+) -> TextStyle {
+    let weight = if style.weight == TextWeight::Automatic {
+        metrics.default_weight
+    } else {
+        style.weight
+    };
+    TextStyle {
+        font_family: font_family.to_string(),
+        size: metrics.size,
+        line_height: metrics.line_height,
+        semantic_role: Some(style.role),
+        weight,
+        color,
+        horizontal_align: style.horizontal_align,
+        vertical_align: style.vertical_align,
+        wrap: style.wrap,
+        ellipsis: style.ellipsis,
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum NativeStyleHostOperation {
+    ResolveTextStyle,
+}
+
+impl NativeStyleHostOperation {
+    pub const fn operation_name(self) -> &'static str {
+        match self {
+            Self::ResolveTextStyle => "resolve_text_style",
+        }
+    }
+}
+
+pub const REQUIRED_NATIVE_STYLE_HOST_OPERATIONS: [NativeStyleHostOperation; 1] =
+    [NativeStyleHostOperation::ResolveTextStyle];
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TextRun {
+    pub text: String,
+    pub bounds: Rect,
+}
+
+pub trait TextLayout {
+    fn measure(&self, text: &str, style: &TextStyle, max_width: i32) -> Size;
+    fn layout_runs(&self, text: &str, style: &TextStyle, bounds: Rect) -> Vec<TextRun>;
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum TextLayoutHostOperation {
+    Measure,
+    LayoutRuns,
+}
+
+impl TextLayoutHostOperation {
+    pub const fn operation_name(self) -> &'static str {
+        match self {
+            Self::Measure => "measure",
+            Self::LayoutRuns => "layout_runs",
+        }
+    }
+}
+
+pub const REQUIRED_TEXT_LAYOUT_HOST_OPERATIONS: [TextLayoutHostOperation; 2] = [
+    TextLayoutHostOperation::Measure,
+    TextLayoutHostOperation::LayoutRuns,
+];
+
+pub trait Renderer {
+    fn fill_rect(&mut self, rect: Rect, color: Color);
+    fn stroke_rect(&mut self, rect: Rect, color: Color, width: i32);
+    fn stroke_arc(
+        &mut self,
+        rect: Rect,
+        color: Color,
+        width: i32,
+        start_degrees: i16,
+        sweep_degrees: i16,
+    );
+    fn draw_text(&mut self, run: &TextRun, style: &TextStyle);
+    fn push_clip(&mut self, rect: Rect);
+    fn pop_clip(&mut self);
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum RendererHostOperation {
+    FillRect,
+    StrokeRect,
+    StrokeArc,
+    DrawText,
+    PushClip,
+    PopClip,
+}
+
+impl RendererHostOperation {
+    pub const fn operation_name(self) -> &'static str {
+        match self {
+            Self::FillRect => "fill_rect",
+            Self::StrokeRect => "stroke_rect",
+            Self::StrokeArc => "stroke_arc",
+            Self::DrawText => "draw_text",
+            Self::PushClip => "push_clip",
+            Self::PopClip => "pop_clip",
+        }
+    }
+}
+
+pub const REQUIRED_RENDERER_HOST_OPERATIONS: [RendererHostOperation; 6] = [
+    RendererHostOperation::FillRect,
+    RendererHostOperation::StrokeRect,
+    RendererHostOperation::StrokeArc,
+    RendererHostOperation::DrawText,
+    RendererHostOperation::PushClip,
+    RendererHostOperation::PopClip,
+];
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum NativeDrawFill {
+    Color(Color),
+    Role(ColorRole),
+    RoleWithAlpha { role: ColorRole, alpha: u8 },
+}
+
+impl NativeDrawFill {
+    pub const fn role(role: ColorRole) -> Self {
+        Self::Role(role)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct NativeDrawTextCommand {
+    pub text: String,
+    pub bounds: Rect,
+    pub style: SemanticTextStyle,
+    /// Explicit brand color that replaces `style.color`. Renderers ignore it
+    /// while the system high-contrast appearance is active.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub color: Option<Color>,
+    /// Explicit font size in DIPs that replaces the role size, keeping the
+    /// role's line-height ratio; used for icon-font glyphs and badges.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub size: Option<ZsFontSize>,
+    /// Explicit font family that replaces the role's family, for example a
+    /// display face for titles or a face with tabular figures for times.
+    /// Renderers fall back to the role family when it is not installed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub family: Option<String>,
+}
+
+/// Overrides a text command applies to its resolved role style. Text
+/// measurement caches key on them so an override measures like it draws.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+pub struct ZsTextOverrides {
+    pub size: Option<ZsFontSize>,
+    pub family: Option<ZsFontFamily>,
+}
+
+impl ZsTextOverrides {
+    pub const NONE: Self = Self {
+        size: None,
+        family: None,
+    };
+
+    pub fn sized(size: Option<ZsFontSize>) -> Self {
+        Self { size, family: None }
+    }
+
+    pub fn is_none(&self) -> bool {
+        self.size.is_none() && self.family.is_none()
+    }
+}
+
+/// An interned font family name. Applications use a handful of families,
+/// so names are interned once and the handle stays `Copy` for caches.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct ZsFontFamily(&'static str);
+
+impl ZsFontFamily {
+    pub fn new(name: &str) -> Self {
+        use std::collections::HashSet;
+        use std::sync::{Mutex, OnceLock};
+        static NAMES: OnceLock<Mutex<HashSet<&'static str>>> = OnceLock::new();
+        let names = NAMES.get_or_init(|| Mutex::new(HashSet::new()));
+        let mut names = names.lock().unwrap_or_else(|error| error.into_inner());
+        if let Some(existing) = names.get(name) {
+            return Self(existing);
+        }
+        let interned: &'static str = Box::leak(name.to_owned().into_boxed_str());
+        names.insert(interned);
+        Self(interned)
+    }
+
+    pub fn name(self) -> &'static str {
+        self.0
+    }
+}
+
+/// A font size in DIPs kept at 1/100 precision so draw commands stay `Eq`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct ZsFontSize(u32);
+
+impl ZsFontSize {
+    pub fn from_dip(dip: f32) -> Self {
+        let dip = if dip.is_finite() {
+            dip.clamp(0.0, 4096.0)
+        } else {
+            0.0
+        };
+        Self((dip * 100.0).round() as u32)
+    }
+
+    pub fn dip(self) -> f32 {
+        self.0 as f32 / 100.0
+    }
+}
+
+#[cfg(feature = "password-box")]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct NativeDrawSecureTextCommand {
+    #[serde(skip, default)]
+    value: crate::ZsPassword,
+    pub bounds: Rect,
+    pub style: SemanticTextStyle,
+    pub revealed: bool,
+}
+
+#[cfg(feature = "password-box")]
+impl NativeDrawSecureTextCommand {
+    pub fn new(
+        value: crate::ZsPassword,
+        bounds: Rect,
+        style: SemanticTextStyle,
+        revealed: bool,
+    ) -> Self {
+        Self {
+            value,
+            bounds,
+            style,
+            revealed,
+        }
+    }
+
+    pub fn character_count(&self) -> usize {
+        self.value.char_count()
+    }
+
+    #[allow(dead_code)]
+    pub(crate) fn rendered_text(&self) -> zeroize::Zeroizing<String> {
+        zeroize::Zeroizing::new(if self.revealed {
+            self.value.as_str().to_owned()
+        } else {
+            crate::mask_password(self.value.as_str())
+        })
+    }
+
+    pub(crate) fn replace_value(&mut self, value: crate::ZsPassword) {
+        self.value = value;
+    }
+}
+
+impl NativeDrawTextCommand {
+    pub fn new(text: impl Into<String>, bounds: Rect, style: SemanticTextStyle) -> Self {
+        Self {
+            text: text.into(),
+            bounds,
+            style,
+            color: None,
+            size: None,
+            family: None,
+        }
+    }
+
+    /// Draws the text in an explicit font family.
+    pub fn with_family(mut self, family: impl Into<String>) -> Self {
+        let family = family.into();
+        self.family = (!family.trim().is_empty()).then_some(family);
+        self
+    }
+
+    /// The size and family overrides this command applies.
+    pub fn overrides(&self) -> ZsTextOverrides {
+        ZsTextOverrides {
+            size: self.size.filter(|size| size.dip() > 0.0),
+            family: self.family.as_deref().map(ZsFontFamily::new),
+        }
+    }
+
+    /// Applies the explicit size and family to a resolved style.
+    pub fn apply_style_overrides(&self, style: &mut TextStyle) {
+        self.apply_size_override(style);
+        if let Some(family) = self.family.as_deref().filter(|f| !f.trim().is_empty()) {
+            style.font_family = family.to_string();
+        }
+    }
+
+    /// Draws the text at an explicit DIP font size.
+    pub fn with_size(mut self, size: f32) -> Self {
+        self.size = Some(ZsFontSize::from_dip(size));
+        self
+    }
+
+    /// Applies the explicit font size to a resolved style, keeping the
+    /// role's line-height ratio. Non-finite or non-positive sizes are ignored.
+    pub fn apply_size_override(&self, style: &mut TextStyle) {
+        if let Some(size) = self.size.map(ZsFontSize::dip).filter(|size| *size > 0.0) {
+            let ratio = if style.size > 0.0 && style.line_height > 0.0 {
+                style.line_height / style.size
+            } else {
+                1.25
+            };
+            style.size = size;
+            style.line_height = size * ratio;
+        }
+    }
+
+    /// Draws the text in an explicit color outside high-contrast mode.
+    pub fn with_color(mut self, color: Color) -> Self {
+        self.color = Some(color);
+        self
+    }
+
+    /// The explicit color to use, or `None` to resolve `style.color`.
+    pub fn color_override(&self, high_contrast: bool) -> Option<Color> {
+        self.color.filter(|_| !high_contrast)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum NativeIconColorMode {
+    ThemeAware,
+    Original,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct NativeDrawIconCommand {
+    pub icon: ZsIcon,
+    pub bounds: Rect,
+    pub color_mode: NativeIconColorMode,
+    pub color: ColorRole,
+    /// Explicit brand color for theme-aware icons. Renderers ignore it while
+    /// the system high-contrast appearance is active.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub custom_color: Option<Color>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct ZsImageFrameId(pub u64);
+
+impl ZsImageFrameId {
+    pub const fn new(value: u64) -> Self {
+        Self(value)
+    }
+}
+
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ZsImageFrame {
+    id: ZsImageFrameId,
+    width: u32,
+    height: u32,
+    #[serde(with = "arc_bytes")]
+    premultiplied_bgra8: Arc<[u8]>,
+}
+
+impl fmt::Debug for ZsImageFrame {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("ZsImageFrame")
+            .field("id", &self.id)
+            .field("width", &self.width)
+            .field("height", &self.height)
+            .field("decoded_bytes", &self.premultiplied_bgra8.len())
+            .finish()
+    }
+}
+
+impl ZsImageFrame {
+    pub fn from_rgba8(
+        id: ZsImageFrameId,
+        width: u32,
+        height: u32,
+        rgba8: impl Into<Vec<u8>>,
+    ) -> crate::ZsuiResult<Self> {
+        let rgba8 = rgba8.into();
+        validate_image_buffer(width, height, rgba8.len())?;
+        let mut bgra = Vec::with_capacity(rgba8.len());
+        for pixel in rgba8.chunks_exact(4) {
+            let alpha = u16::from(pixel[3]);
+            let premultiply = |channel: u8| ((u16::from(channel) * alpha + 127) / 255) as u8;
+            bgra.extend_from_slice(&[
+                premultiply(pixel[2]),
+                premultiply(pixel[1]),
+                premultiply(pixel[0]),
+                pixel[3],
+            ]);
+        }
+        Ok(Self {
+            id,
+            width,
+            height,
+            premultiplied_bgra8: Arc::from(bgra),
+        })
+    }
+
+    pub fn from_premultiplied_bgra8(
+        id: ZsImageFrameId,
+        width: u32,
+        height: u32,
+        premultiplied_bgra8: impl Into<Vec<u8>>,
+    ) -> crate::ZsuiResult<Self> {
+        let pixels = premultiplied_bgra8.into();
+        validate_image_buffer(width, height, pixels.len())?;
+        Ok(Self {
+            id,
+            width,
+            height,
+            premultiplied_bgra8: Arc::from(pixels),
+        })
+    }
+
+    pub const fn id(&self) -> ZsImageFrameId {
+        self.id
+    }
+
+    pub const fn width(&self) -> u32 {
+        self.width
+    }
+
+    pub const fn height(&self) -> u32 {
+        self.height
+    }
+
+    pub fn premultiplied_bgra8(&self) -> &[u8] {
+        &self.premultiplied_bgra8
+    }
+
+    pub fn decoded_bytes(&self) -> usize {
+        self.premultiplied_bgra8.len()
+    }
+}
+
+fn validate_image_buffer(width: u32, height: u32, actual: usize) -> crate::ZsuiResult<()> {
+    let expected = usize::try_from(width)
+        .ok()
+        .and_then(|width| {
+            usize::try_from(height)
+                .ok()
+                .and_then(|height| width.checked_mul(height))
+        })
+        .and_then(|pixels| pixels.checked_mul(4))
+        .ok_or_else(|| {
+            crate::ZsuiError::invalid_spec("image_frame.dimensions", "image dimensions overflow")
+        })?;
+    if width == 0 || height == 0 || actual != expected {
+        return Err(crate::ZsuiError::invalid_spec(
+            "image_frame.pixels",
+            format!("expected {expected} BGRA/RGBA bytes for {width}x{height}, received {actual}"),
+        ));
+    }
+    Ok(())
+}
+
+mod arc_bytes {
+    use serde::{Deserialize, Deserializer, Serializer};
+    use std::sync::Arc;
+
+    pub fn serialize<S>(bytes: &Arc<[u8]>, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serializer.serialize_bytes(bytes)
+    }
+
+    pub fn deserialize<'de, D>(deserializer: D) -> Result<Arc<[u8]>, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        Vec::<u8>::deserialize(deserializer).map(Arc::from)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum NativeImageInterpolation {
+    Nearest,
+    Smooth,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct NativeDrawImageCommand {
+    pub frame: ZsImageFrame,
+    pub source: Rect,
+    pub bounds: Rect,
+    pub interpolation: NativeImageInterpolation,
+}
+
+impl NativeDrawImageCommand {
+    pub const fn new(frame: ZsImageFrame, source: Rect, bounds: Rect) -> Self {
+        Self {
+            frame,
+            source,
+            bounds,
+            interpolation: NativeImageInterpolation::Smooth,
+        }
+    }
+
+    pub const fn interpolation(mut self, interpolation: NativeImageInterpolation) -> Self {
+        self.interpolation = interpolation;
+        self
+    }
+}
+
+impl NativeDrawIconCommand {
+    pub const fn new(icon: ZsIcon, bounds: Rect, color_mode: NativeIconColorMode) -> Self {
+        Self {
+            icon,
+            bounds,
+            color_mode,
+            color: ColorRole::PrimaryText,
+            custom_color: None,
+        }
+    }
+
+    pub const fn with_color(mut self, color: ColorRole) -> Self {
+        self.color = color;
+        self
+    }
+
+    /// Tints a theme-aware icon with an explicit color outside high contrast.
+    pub const fn with_custom_color(mut self, color: Color) -> Self {
+        self.custom_color = Some(color);
+        self
+    }
+
+    /// The explicit tint to use, or `None` to resolve `color`.
+    pub fn color_override(&self, high_contrast: bool) -> Option<Color> {
+        self.custom_color.filter(|_| !high_contrast)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum NativeDrawCommand {
+    FillRect {
+        rect: Rect,
+        fill: NativeDrawFill,
+    },
+    StrokeRect {
+        rect: Rect,
+        stroke: NativeDrawFill,
+        width: i32,
+    },
+    StrokeArc {
+        rect: Rect,
+        stroke: NativeDrawFill,
+        width: i32,
+        start_degrees: i16,
+        sweep_degrees: i16,
+    },
+    FillTriangle {
+        points: [crate::Point; 3],
+        fill: NativeDrawFill,
+    },
+    RoundRect {
+        rect: Rect,
+        fill: NativeDrawFill,
+        stroke: Option<NativeDrawFill>,
+        radius: i32,
+    },
+    RoundFill {
+        rect: Rect,
+        fill: NativeDrawFill,
+        radius: i32,
+    },
+    Text(NativeDrawTextCommand),
+    #[cfg(feature = "password-box")]
+    SecureText(NativeDrawSecureTextCommand),
+    Icon(NativeDrawIconCommand),
+    Image(NativeDrawImageCommand),
+    PushClip {
+        rect: Rect,
+    },
+    PopClip,
+    /// An antialiased line through `points` with round joins and caps.
+    StrokePolyline {
+        points: Vec<crate::Point>,
+        stroke: NativeDrawFill,
+        width: i32,
+        closed: bool,
+    },
+    /// An antialiased polygon filled with the even-odd rule.
+    FillPolygon {
+        points: Vec<crate::Point>,
+        fill: NativeDrawFill,
+    },
+    /// A two-stop linear gradient with optional round corners. High-contrast
+    /// renderers draw `start` as a solid fill.
+    FillGradient {
+        rect: Rect,
+        start: NativeDrawFill,
+        end: NativeDrawFill,
+        direction: NativeGradientDirection,
+        radius: i32,
+    },
+}
+
+/// What a new draw plan changes on screen compared with the previous one.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum NativeDrawDamage {
+    /// Nothing visible changed; the window need not repaint.
+    None,
+    /// Repaint the whole window.
+    Full,
+    /// Repaint these window areas.
+    Rects(Vec<Rect>),
+}
+
+/// The smallest rectangle holding `a` and `b`.
+fn union_rect(a: Rect, b: Rect) -> Rect {
+    if a.width <= 0 || a.height <= 0 {
+        return b;
+    }
+    if b.width <= 0 || b.height <= 0 {
+        return a;
+    }
+    let left = a.x.min(b.x);
+    let top = a.y.min(b.y);
+    let right = (a.x + a.width).max(b.x + b.width);
+    let bottom = (a.y + a.height).max(b.y + b.height);
+    Rect {
+        x: left,
+        y: top,
+        width: right - left,
+        height: bottom - top,
+    }
+}
+
+fn inflate(rect: Rect, by: i32) -> Rect {
+    Rect {
+        x: rect.x - by,
+        y: rect.y - by,
+        width: rect.width + by * 2,
+        height: rect.height + by * 2,
+    }
+}
+
+fn points_bounds(points: &[crate::Point]) -> Option<Rect> {
+    let first = points.first()?;
+    let (mut left, mut top, mut right, mut bottom) = (first.x, first.y, first.x, first.y);
+    for point in points {
+        left = left.min(point.x);
+        top = top.min(point.y);
+        right = right.max(point.x);
+        bottom = bottom.max(point.y);
+    }
+    Some(Rect {
+        x: left,
+        y: top,
+        width: right - left + 1,
+        height: bottom - top + 1,
+    })
+}
+
+/// Compares two draw plans of the same window. When both have the same
+/// shape, each changed command damages its own area; otherwise commands
+/// that match at the start and the end are skipped and everything in
+/// between is damaged. Clip changes that alter the clip depth of what
+/// follows, a new theme or typography scale, or damage covering most of
+/// `window` need a full repaint.
+pub fn native_draw_plan_damage(
+    old: &NativeDrawPlan,
+    new: &NativeDrawPlan,
+    window: Rect,
+) -> NativeDrawDamage {
+    if old.theme_mode != new.theme_mode
+        || old.typography_scale_per_mille != new.typography_scale_per_mille
+    {
+        return NativeDrawDamage::Full;
+    }
+    let (a, b) = (&old.commands, &new.commands);
+    let is_clip = |command: &NativeDrawCommand| {
+        matches!(
+            command,
+            NativeDrawCommand::PushClip { .. } | NativeDrawCommand::PopClip
+        )
+    };
+    let mut rects: Vec<Rect> = Vec::new();
+    if a.len() == b.len() {
+        for (before, after) in a.iter().zip(b) {
+            if before == after {
+                continue;
+            }
+            // A clip turning into a drawing (or back) shifts every clip after.
+            if is_clip(before) != is_clip(after)
+                || matches!(before, NativeDrawCommand::PopClip)
+                    != matches!(after, NativeDrawCommand::PopClip)
+            {
+                return NativeDrawDamage::Full;
+            }
+            rects.extend(before.bounds());
+            rects.extend(after.bounds());
+        }
+        if rects.is_empty() {
+            return NativeDrawDamage::None;
+        }
+    } else {
+        let shorter = a.len().min(b.len());
+        let mut start = 0;
+        while start < shorter && a[start] == b[start] {
+            start += 1;
+        }
+        let mut tail = 0;
+        while tail < shorter - start && a[a.len() - 1 - tail] == b[b.len() - 1 - tail] {
+            tail += 1;
+        }
+        let changed_old = &a[start..a.len() - tail];
+        let changed_new = &b[start..b.len() - tail];
+        let depth = |commands: &[NativeDrawCommand]| {
+            commands.iter().fold(0i32, |depth, command| match command {
+                NativeDrawCommand::PushClip { .. } => depth + 1,
+                NativeDrawCommand::PopClip => depth - 1,
+                _ => depth,
+            })
+        };
+        if depth(changed_old) != depth(changed_new) {
+            return NativeDrawDamage::Full;
+        }
+        rects.extend(
+            changed_old
+                .iter()
+                .chain(changed_new)
+                .filter_map(NativeDrawCommand::bounds),
+        );
+    }
+    // Room for antialiasing and glyph overhang; then merge areas that touch
+    // so a handful of rectangles remain.
+    let mut merged: Vec<Rect> = Vec::new();
+    for rect in rects
+        .into_iter()
+        .filter(|r| r.width > 0 && r.height > 0)
+        .map(|r| inflate(r, 2))
+    {
+        let mut rect = rect;
+        while let Some(index) = merged
+            .iter()
+            .position(|other| rects_touch(*other, rect, 16))
+        {
+            rect = union_rect(merged.swap_remove(index), rect);
+        }
+        merged.push(rect);
+    }
+    if merged.is_empty() {
+        return NativeDrawDamage::Full;
+    }
+    if merged.len() > 12 {
+        let bounds = merged.iter().copied().fold(merged[0], union_rect);
+        merged = vec![bounds];
+    }
+    let window_area = i64::from(window.width.max(1)) * i64::from(window.height.max(1));
+    let damage_area: i64 = merged
+        .iter()
+        .map(|r| i64::from(r.width) * i64::from(r.height))
+        .sum();
+    if damage_area * 10 > window_area * 6 {
+        NativeDrawDamage::Full
+    } else {
+        NativeDrawDamage::Rects(merged)
+    }
+}
+
+/// Whether `a` and `b` overlap or lie within `gap` of each other.
+fn rects_touch(a: Rect, b: Rect, gap: i32) -> bool {
+    a.x - gap < b.x + b.width
+        && b.x - gap < a.x + a.width
+        && a.y - gap < b.y + b.height
+        && b.y - gap < a.y + a.height
+}
+
+/// The axis a [`NativeDrawCommand::FillGradient`] runs along.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
+pub enum NativeGradientDirection {
+    /// From the top edge to the bottom edge.
+    #[default]
+    Vertical,
+    /// From the left edge to the right edge.
+    Horizontal,
+}
+
+impl NativeDrawCommand {
+    /// The window area this command can paint; a clip reports the area it
+    /// restricts, and the end of a clip has none.
+    pub fn bounds(&self) -> Option<Rect> {
+        match self {
+            Self::FillRect { rect, .. }
+            | Self::RoundFill { rect, .. }
+            | Self::FillGradient { rect, .. }
+            | Self::PushClip { rect } => Some(*rect),
+            Self::RoundRect { rect, .. } => Some(inflate(*rect, 1)),
+            Self::StrokeRect { rect, width, .. } | Self::StrokeArc { rect, width, .. } => {
+                Some(inflate(*rect, *width))
+            }
+            Self::FillTriangle { points, .. } => points_bounds(points),
+            Self::FillPolygon { points, .. } => points_bounds(points),
+            Self::StrokePolyline { points, width, .. } => {
+                points_bounds(points).map(|rect| inflate(rect, width / 2 + 1))
+            }
+            Self::Text(command) => Some(command.bounds),
+            #[cfg(feature = "password-box")]
+            Self::SecureText(command) => Some(command.bounds),
+            Self::Icon(command) => Some(command.bounds),
+            Self::Image(command) => Some(command.bounds),
+            Self::PopClip => None,
+        }
+    }
+
+    pub const fn operation(&self) -> NativeDrawCommandOperation {
+        match self {
+            Self::FillRect { .. } => NativeDrawCommandOperation::FillRect,
+            Self::StrokeRect { .. } => NativeDrawCommandOperation::StrokeRect,
+            Self::StrokeArc { .. } => NativeDrawCommandOperation::StrokeArc,
+            Self::FillTriangle { .. } => NativeDrawCommandOperation::FillTriangle,
+            Self::RoundRect { .. } => NativeDrawCommandOperation::RoundRect,
+            Self::RoundFill { .. } => NativeDrawCommandOperation::RoundFill,
+            Self::Text(_) => NativeDrawCommandOperation::DrawText,
+            #[cfg(feature = "password-box")]
+            Self::SecureText(_) => NativeDrawCommandOperation::DrawText,
+            Self::Icon(_) => NativeDrawCommandOperation::DrawIcon,
+            Self::Image(_) => NativeDrawCommandOperation::DrawImage,
+            Self::PushClip { .. } => NativeDrawCommandOperation::PushClip,
+            Self::PopClip => NativeDrawCommandOperation::PopClip,
+            Self::StrokePolyline { .. } => NativeDrawCommandOperation::StrokePolyline,
+            Self::FillPolygon { .. } => NativeDrawCommandOperation::FillPolygon,
+            Self::FillGradient { .. } => NativeDrawCommandOperation::FillGradient,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum NativeDrawCommandOperation {
+    FillRect,
+    StrokeRect,
+    StrokeArc,
+    FillTriangle,
+    RoundRect,
+    RoundFill,
+    DrawText,
+    DrawIcon,
+    DrawImage,
+    PushClip,
+    PopClip,
+    StrokePolyline,
+    FillPolygon,
+    FillGradient,
+}
+
+impl NativeDrawCommandOperation {
+    pub const fn operation_name(self) -> &'static str {
+        match self {
+            Self::FillRect => "draw_fill_rect",
+            Self::StrokeRect => "draw_stroke_rect",
+            Self::StrokeArc => "draw_stroke_arc",
+            Self::FillTriangle => "draw_fill_triangle",
+            Self::RoundRect => "draw_round_rect",
+            Self::RoundFill => "draw_round_fill",
+            Self::DrawText => "draw_text",
+            Self::DrawIcon => "draw_icon",
+            Self::DrawImage => "draw_image",
+            Self::PushClip => "push_clip",
+            Self::PopClip => "pop_clip",
+            Self::StrokePolyline => "draw_stroke_polyline",
+            Self::FillPolygon => "draw_fill_polygon",
+            Self::FillGradient => "draw_fill_gradient",
+        }
+    }
+}
+
+pub const REQUIRED_NATIVE_DRAW_COMMAND_OPERATIONS: [NativeDrawCommandOperation; 14] = [
+    NativeDrawCommandOperation::FillRect,
+    NativeDrawCommandOperation::StrokeRect,
+    NativeDrawCommandOperation::StrokeArc,
+    NativeDrawCommandOperation::FillTriangle,
+    NativeDrawCommandOperation::RoundRect,
+    NativeDrawCommandOperation::RoundFill,
+    NativeDrawCommandOperation::DrawText,
+    NativeDrawCommandOperation::DrawIcon,
+    NativeDrawCommandOperation::DrawImage,
+    NativeDrawCommandOperation::PushClip,
+    NativeDrawCommandOperation::PopClip,
+    NativeDrawCommandOperation::StrokePolyline,
+    NativeDrawCommandOperation::FillPolygon,
+    NativeDrawCommandOperation::FillGradient,
+];
+
+pub fn required_native_draw_command_operation_names() -> Vec<&'static str> {
+    REQUIRED_NATIVE_DRAW_COMMAND_OPERATIONS
+        .iter()
+        .map(|operation| operation.operation_name())
+        .collect()
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct NativeDrawPlan {
+    pub commands: Vec<NativeDrawCommand>,
+    pub theme_mode: ZsuiThemeMode,
+    /// Per-mille scale resolved from the target desktop's configured UI font.
+    ///
+    /// Integer storage keeps draw plans deterministic and comparable while
+    /// allowing AppKit and GTK to feed their runtime font setting into both
+    /// layout and final native text shaping.
+    #[serde(default = "default_typography_scale_per_mille")]
+    typography_scale_per_mille: u16,
+}
+
+pub(crate) const fn default_typography_scale_per_mille() -> u16 {
+    1_000
+}
+
+pub(crate) fn normalize_typography_scale_per_mille(scale: f32) -> u16 {
+    if !scale.is_finite() {
+        return default_typography_scale_per_mille();
+    }
+    (scale.clamp(0.75, 3.0) * 1_000.0).round() as u16
+}
+
+impl Default for NativeDrawPlan {
+    fn default() -> Self {
+        Self {
+            commands: Vec::new(),
+            theme_mode: ZsuiThemeMode::System,
+            typography_scale_per_mille: default_typography_scale_per_mille(),
+        }
+    }
+}
+
+impl NativeDrawPlan {
+    pub fn new(commands: impl IntoIterator<Item = NativeDrawCommand>) -> Self {
+        Self {
+            commands: commands.into_iter().collect(),
+            theme_mode: ZsuiThemeMode::System,
+            typography_scale_per_mille: default_typography_scale_per_mille(),
+        }
+    }
+
+    pub fn theme_mode(mut self, theme_mode: ZsuiThemeMode) -> Self {
+        self.theme_mode = theme_mode;
+        self
+    }
+
+    pub fn typography_scale(&self) -> f32 {
+        f32::from(if self.typography_scale_per_mille == 0 {
+            default_typography_scale_per_mille()
+        } else {
+            self.typography_scale_per_mille
+        }) / 1_000.0
+    }
+
+    pub(crate) fn set_typography_scale(&mut self, scale: f32) {
+        self.typography_scale_per_mille = normalize_typography_scale_per_mille(scale);
+    }
+
+    pub fn push(&mut self, command: NativeDrawCommand) {
+        self.commands.push(command);
+    }
+
+    pub fn command_count(&self) -> usize {
+        self.commands.len()
+    }
+
+    pub fn text_count(&self) -> usize {
+        self.commands
+            .iter()
+            .filter(|command| matches!(command, NativeDrawCommand::Text(_)))
+            .count()
+    }
+
+    pub fn icon_count(&self) -> usize {
+        self.commands
+            .iter()
+            .filter(|command| matches!(command, NativeDrawCommand::Icon(_)))
+            .count()
+    }
+
+    pub fn image_count(&self) -> usize {
+        self.commands
+            .iter()
+            .filter(|command| matches!(command, NativeDrawCommand::Image(_)))
+            .count()
+    }
+}
+
+pub trait NativeDrawCommandSink {
+    fn draw_command(&mut self, command: &NativeDrawCommand);
+
+    fn draw_plan(&mut self, plan: &NativeDrawPlan) {
+        for command in &plan.commands {
+            self.draw_command(command);
+        }
+    }
+}
+
+#[cfg(test)]
+mod draw_command_tests {
+    use super::*;
+
+    #[derive(Default)]
+    struct RecordingDrawSink {
+        commands: Vec<NativeDrawCommandOperation>,
+    }
+
+    impl NativeDrawCommandSink for RecordingDrawSink {
+        fn draw_command(&mut self, command: &NativeDrawCommand) {
+            self.commands.push(command.operation());
+        }
+    }
+
+    #[test]
+    fn color_rgba_text_has_one_canonical_representation() {
+        let color = Color::rgba(32, 96, 160, 224);
+        assert_eq!(color.hex_rgba(), "#2060A0E0");
+        assert_eq!(Color::parse_hex_rgba("#2060A0E0"), Some(color));
+        assert_eq!(Color::parse_hex_rgba("#2060a0e0"), None);
+        assert_eq!(Color::parse_hex_rgba("#2060A0"), None);
+    }
+
+    #[test]
+    fn native_draw_plan_keeps_self_draw_command_shape() {
+        let rect = Rect {
+            x: 8,
+            y: 12,
+            width: 120,
+            height: 32,
+        };
+        let plan = NativeDrawPlan::new([
+            NativeDrawCommand::FillRect {
+                rect,
+                fill: NativeDrawFill::Role(ColorRole::Surface),
+            },
+            NativeDrawCommand::RoundRect {
+                rect,
+                fill: NativeDrawFill::Role(ColorRole::Control),
+                stroke: Some(NativeDrawFill::Role(ColorRole::Accent)),
+                radius: 8,
+            },
+            NativeDrawCommand::Text(NativeDrawTextCommand::new(
+                "Search",
+                rect,
+                SemanticTextStyle::body(),
+            )),
+            NativeDrawCommand::Icon(NativeDrawIconCommand::new(
+                ZsIcon::Search,
+                rect,
+                NativeIconColorMode::ThemeAware,
+            )),
+            NativeDrawCommand::Image(NativeDrawImageCommand::new(
+                ZsImageFrame::from_rgba8(ZsImageFrameId::new(7), 1, 1, vec![255, 0, 0, 255])
+                    .unwrap(),
+                Rect {
+                    x: 0,
+                    y: 0,
+                    width: 1,
+                    height: 1,
+                },
+                rect,
+            )),
+        ]);
+
+        assert_eq!(plan.command_count(), 5);
+        assert_eq!(plan.text_count(), 1);
+        assert_eq!(plan.icon_count(), 1);
+        assert_eq!(plan.image_count(), 1);
+
+        let mut sink = RecordingDrawSink::default();
+        sink.draw_plan(&plan);
+        assert_eq!(
+            sink.commands,
+            vec![
+                NativeDrawCommandOperation::FillRect,
+                NativeDrawCommandOperation::RoundRect,
+                NativeDrawCommandOperation::DrawText,
+                NativeDrawCommandOperation::DrawIcon,
+                NativeDrawCommandOperation::DrawImage,
+            ]
+        );
+    }
+
+    #[test]
+    fn plan_damage_covers_only_what_changed() {
+        let window = Rect {
+            x: 0,
+            y: 0,
+            width: 1000,
+            height: 800,
+        };
+        let fill = |x: i32, color: u8| NativeDrawCommand::FillRect {
+            rect: Rect {
+                x,
+                y: 10,
+                width: 20,
+                height: 20,
+            },
+            fill: NativeDrawFill::Color(Color::rgb(color, 0, 0)),
+        };
+        let plan = |commands: Vec<NativeDrawCommand>| NativeDrawPlan {
+            commands,
+            ..NativeDrawPlan::default()
+        };
+        let old = plan(vec![fill(0, 1), fill(100, 1), fill(200, 1)]);
+        assert_eq!(
+            native_draw_plan_damage(&old, &old.clone(), window),
+            NativeDrawDamage::None
+        );
+        // One changed command: only its area, slightly inflated.
+        let new = plan(vec![fill(0, 1), fill(100, 2), fill(200, 1)]);
+        assert_eq!(
+            native_draw_plan_damage(&old, &new, window),
+            NativeDrawDamage::Rects(vec![Rect {
+                x: 98,
+                y: 8,
+                width: 24,
+                height: 24,
+            }])
+        );
+        // Two far apart changes stay two areas.
+        let new = plan(vec![fill(0, 2), fill(100, 1), fill(200, 2)]);
+        assert_eq!(
+            native_draw_plan_damage(&old, &new, window),
+            NativeDrawDamage::Rects(vec![
+                Rect {
+                    x: -2,
+                    y: 8,
+                    width: 24,
+                    height: 24,
+                },
+                Rect {
+                    x: 198,
+                    y: 8,
+                    width: 24,
+                    height: 24,
+                },
+            ])
+        );
+        // An inserted command between unchanged ones.
+        let new = plan(vec![fill(0, 1), fill(100, 1), fill(150, 3), fill(200, 1)]);
+        assert_eq!(
+            native_draw_plan_damage(&old, &new, window),
+            NativeDrawDamage::Rects(vec![Rect {
+                x: 148,
+                y: 8,
+                width: 24,
+                height: 24,
+            }])
+        );
+        // An unbalanced clip changes how everything after it draws.
+        let new = plan(vec![
+            fill(0, 1),
+            NativeDrawCommand::PushClip { rect: window },
+            fill(100, 1),
+            fill(200, 1),
+        ]);
+        assert_eq!(
+            native_draw_plan_damage(&old, &new, window),
+            NativeDrawDamage::Full
+        );
+        // A new theme repaints everything.
+        let mut new = old.clone();
+        new.theme_mode = crate::ZsuiThemeMode::Dark;
+        assert_eq!(
+            native_draw_plan_damage(&old, &new, window),
+            NativeDrawDamage::Full
+        );
+    }
+
+    #[test]
+    fn native_draw_command_operation_names_are_stable() {
+        assert_eq!(
+            required_native_draw_command_operation_names(),
+            vec![
+                "draw_fill_rect",
+                "draw_stroke_rect",
+                "draw_stroke_arc",
+                "draw_fill_triangle",
+                "draw_round_rect",
+                "draw_round_fill",
+                "draw_text",
+                "draw_icon",
+                "draw_image",
+                "push_clip",
+                "pop_clip",
+                "draw_stroke_polyline",
+                "draw_fill_polygon",
+                "draw_fill_gradient",
+            ]
+        );
+    }
+
+    #[test]
+    fn image_frame_is_premultiplied_once_and_clones_share_storage() {
+        let frame =
+            ZsImageFrame::from_rgba8(ZsImageFrameId::new(11), 1, 1, vec![255, 64, 0, 128]).unwrap();
+        assert_eq!(frame.premultiplied_bgra8(), &[0, 32, 128, 128]);
+        let clone = frame.clone();
+        assert_eq!(
+            frame.premultiplied_bgra8().as_ptr(),
+            clone.premultiplied_bgra8().as_ptr()
+        );
+        let json = serde_json::to_string(&frame).unwrap();
+        let restored: ZsImageFrame = serde_json::from_str(&json).unwrap();
+        assert_eq!(restored, frame);
+    }
+
+    #[test]
+    fn semantic_roles_follow_the_fluent_type_ramp() {
+        assert_eq!(
+            (TextRole::Caption.size(), TextRole::Caption.line_height()),
+            (12.0, 16.0)
+        );
+        assert_eq!(
+            (TextRole::Body.size(), TextRole::Body.line_height()),
+            (14.0, 20.0)
+        );
+        assert_eq!(
+            (
+                TextRole::BodyLarge.size(),
+                TextRole::BodyLarge.line_height()
+            ),
+            (18.0, 24.0)
+        );
+        assert_eq!(
+            (TextRole::Subtitle.size(), TextRole::Subtitle.line_height()),
+            (20.0, 28.0)
+        );
+        assert_eq!(
+            (
+                TextRole::WindowTitle.size(),
+                TextRole::WindowTitle.line_height()
+            ),
+            (24.0, 32.0)
+        );
+        assert_eq!(
+            (TextRole::Title.size(), TextRole::Title.line_height()),
+            (28.0, 36.0)
+        );
+        assert_eq!(
+            (
+                TextRole::TitleLarge.size(),
+                TextRole::TitleLarge.line_height()
+            ),
+            (40.0, 52.0)
+        );
+        assert_eq!(
+            (TextRole::Display.size(), TextRole::Display.line_height()),
+            (68.0, 92.0)
+        );
+        assert_eq!(
+            SemanticTextStyle::for_role(TextRole::Title).weight,
+            TextWeight::Automatic
+        );
+    }
+
+    #[test]
+    fn semantic_roles_resolve_through_native_desktop_type_ramps() {
+        let windows = TextRole::Body.metrics_for(ZsTypographyPlatformStyle::Windows);
+        let macos_body = TextRole::Body.metrics_for(ZsTypographyPlatformStyle::Macos);
+        let macos_caption = TextRole::Caption.metrics_for(ZsTypographyPlatformStyle::Macos);
+        let macos_title = TextRole::Title.metrics_for(ZsTypographyPlatformStyle::Macos);
+        let windows_title = TextRole::WindowTitle.metrics_for(ZsTypographyPlatformStyle::Windows);
+        let gtk_caption = TextRole::Caption.metrics_for(ZsTypographyPlatformStyle::Gtk);
+
+        assert_eq!((windows.size, windows.line_height), (14.0, 20.0));
+        assert_eq!(
+            (
+                macos_body.size,
+                macos_body.line_height,
+                macos_body.default_weight
+            ),
+            (13.0, 16.0, TextWeight::Regular)
+        );
+        assert_eq!(
+            (macos_caption.size, macos_caption.line_height),
+            (10.0, 13.0)
+        );
+        assert_eq!(
+            (
+                macos_title.size,
+                macos_title.line_height,
+                macos_title.default_weight
+            ),
+            (22.0, 26.0, TextWeight::Regular)
+        );
+        assert_eq!(
+            (
+                windows_title.size,
+                windows_title.line_height,
+                windows_title.default_weight
+            ),
+            (24.0, 32.0, TextWeight::Semibold)
+        );
+        assert_eq!((gtk_caption.size, gtk_caption.line_height), (11.5, 16.0));
+    }
+
+    #[test]
+    fn native_typography_profile_owns_role_families_scale_and_vertical_metrics() {
+        let profile = NativeTypographyProfile::new(
+            ZsTypographyPlatformStyle::Macos,
+            "appkit",
+            ".AppleSystemUIFont",
+            "Menlo",
+            ".AppleSystemUIFont",
+            1.25,
+            "coretext",
+        )
+        .with_role_families("System Small", "System Display")
+        .with_body_vertical_metrics(12.0, 3.0, 1.0);
+
+        assert_eq!(profile.font_family_for(TextRole::Caption), "System Small");
+        assert_eq!(profile.font_family_for(TextRole::Title), "System Display");
+        assert_eq!(profile.font_family_for(TextRole::Monospace), "Menlo");
+        assert_eq!(profile.metrics_for(TextRole::Body).size, 16.25);
+        assert_eq!(profile.body_metrics.line_height, 20.0);
+        assert_eq!(profile.body_metrics.ascent, Some(12.0));
+
+        let scaled = profile.with_typography_scale(1.5);
+        assert_eq!(scaled.body_metrics.size, 19.5);
+        assert!((scaled.body_metrics.ascent.expect("ascent") - 14.4).abs() < 0.0001);
+    }
+
+    #[test]
+    fn native_draw_plan_typography_scale_is_deterministic_and_backward_compatible() {
+        let legacy: NativeDrawPlan =
+            serde_json::from_str(r#"{"commands":[],"theme_mode":"System"}"#).unwrap();
+        assert_eq!(legacy.typography_scale(), 1.0);
+
+        let mut plan = NativeDrawPlan::default();
+        plan.set_typography_scale(1.375);
+        assert_eq!(plan.typography_scale_per_mille, 1_375);
+        assert_eq!(plan.typography_scale(), 1.375);
+        plan.set_typography_scale(f32::NAN);
+        assert_eq!(plan.typography_scale(), 1.0);
+    }
+}

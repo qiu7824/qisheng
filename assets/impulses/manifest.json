@@ -1,0 +1,163 @@
+{
+  "source_commit": "ad95d5091c9ed689fa72b5e5c849df65f5a679ce",
+  "source_project": "https://github.com/lyswhut/lx-music-desktop",
+  "preset_source": "src/renderer/plugins/player/index.ts",
+  "presets": [
+    {
+      "id": "telephone",
+      "file_name": "filter-telephone.wav",
+      "main_gain": 0,
+      "send_gain": 3,
+      "sha256": "4dc96614900e1b3fa85611de2ddfd39f2e26530b3b8336239dc1badbfd89f7e9",
+      "encoded_bytes": 293344,
+      "sample_rate": 44100,
+      "channels": 2,
+      "frames": 72312,
+      "source_url": "https://raw.githubusercontent.com/lyswhut/lx-music-desktop/ad95d5091c9ed689fa72b5e5c849df65f5a679ce/src/renderer/assets/medias/filters/filter-telephone.wav"
+    },
+    {
+      "id": "s2_r4_bd",
+      "file_name": "s2_r4_bd.wav",
+      "main_gain": 1.8,
+      "send_gain": 0.9,
+      "sha256": "400e242cb263d1ce83bed6b7fc2e75f498e0695735974f943d0269befcb31b2f",
+      "encoded_bytes": 772096,
+      "sample_rate": 48000,
+      "channels": 2,
+      "frames": 192000,
+      "source_url": "https://raw.githubusercontent.com/lyswhut/lx-music-desktop/ad95d5091c9ed689fa72b5e5c849df65f5a679ce/src/renderer/assets/medias/filters/s2_r4_bd.wav"
+    },
+    {
+      "id": "bright_hall",
+      "file_name": "bright-hall.wav",
+      "main_gain": 0.8,
+      "send_gain": 2.4,
+      "sha256": "4f0d8c51a4a5f7a5061c4037136a314a673abb502a86fab869a3b068a4754f83",
+      "encoded_bytes": 528384,
+      "sample_rate": 44100,
+      "channels": 4,
+      "frames": 65536,
+      "source_url": "https://raw.githubusercontent.com/lyswhut/lx-music-desktop/ad95d5091c9ed689fa72b5e5c849df65f5a679ce/src/renderer/assets/medias/filters/bright-hall.wav"
+    },
+    {
+      "id": "cinema_diningroom",
+      "file_name": "cinema-diningroom.wav",
+      "main_gain": 0.6,
+      "send_gain": 2.3,
+      "sha256": "c515a820912cd2fe54f687f6cee36bb2c0b947a6bc23ad057327a8ae9abe44b0",
+      "encoded_bytes": 264272,
+      "sample_rate": 44100,
+      "channels": 2,
+      "frames": 65044,
+      "source_url": "https://raw.githubusercontent.com/lyswhut/lx-music-desktop/ad95d5091c9ed689fa72b5e5c849df65f5a679ce/src/renderer/assets/medias/filters/cinema-diningroom.wav"
+    },
+    {
+      "id": "dining_living_true_stereo",
+      "file_name": "dining-living-true-stereo.wav",
+      "main_gain": 0.6,
+      "send_gain": 1.8,
+      "sha256": "b0287ec2305edc75d6c484c6a9e55339162acdc2edf7c18b53dfb835563b454f",
+      "encoded_bytes": 549952,
+      "sample_rate": 44100,
+      "channels": 4,
+      "frames": 68232,
+      "source_url": "https://raw.githubusercontent.com/lyswhut/lx-music-desktop/ad95d5091c9ed689fa72b5e5c849df65f5a679ce/src/renderer/assets/medias/filters/dining-living-true-stereo.wav"
+    },
+    {
+      "id": "living_bedroom_leveled",
+      "file_name": "living-bedroom-leveled.wav",
+      "main_gain": 0.6,
+      "send_gain": 2.1,
+      "sha256": "d0ec29a1ac756ee6fcd20e1d05018792e645eb606cdc8727a38497f99de34592",
+      "encoded_bytes": 220476,
+      "sample_rate": 44100,
+      "channels": 2,
+      "frames": 54095,
+      "source_url": "https://raw.githubusercontent.com/lyswhut/lx-music-desktop/ad95d5091c9ed689fa72b5e5c849df65f5a679ce/src/renderer/assets/medias/filters/living-bedroom-leveled.wav"
+    },
+    {
+      "id": "spreader50_65ms",
+      "file_name": "spreader50-65ms.wav",
+      "main_gain": 1,
+      "send_gain": 2.5,
+      "sha256": "40fffaf053416be74002d7636c7b469eb17c8762a0d096491c986d00f9a36e64",
+      "encoded_bytes": 356896,
+      "sample_rate": 44100,
+      "channels": 4,
+      "frames": 44100,
+      "source_url": "https://raw.githubusercontent.com/lyswhut/lx-music-desktop/ad95d5091c9ed689fa72b5e5c849df65f5a679ce/src/renderer/assets/medias/filters/spreader50-65ms.wav"
+    },
+    {
+      "id": "s3_r1_bd",
+      "file_name": "s3_r1_bd.wav",
+      "main_gain": 1.8,
+      "send_gain": 0.8,
+      "sha256": "3ae4c9ade438e69c23e2e26ecc9bc579bee345be506a6ac30349c34c66177be0",
+      "encoded_bytes": 772096,
+      "sample_rate": 48000,
+      "channels": 2,
+      "frames": 192000,
+      "source_url": "https://raw.githubusercontent.com/lyswhut/lx-music-desktop/ad95d5091c9ed689fa72b5e5c849df65f5a679ce/src/renderer/assets/medias/filters/s3_r1_bd.wav"
+    },
+    {
+      "id": "matrix_1",
+      "file_name": "matrix-reverb1.wav",
+      "main_gain": 1.5,
+      "send_gain": 0.9,
+      "sha256": "333d05904c01c774b28a05a0fae147f8475f6e4f7daa92c3e16d879867f97d0c",
+      "encoded_bytes": 592576,
+      "sample_rate": 44100,
+      "channels": 2,
+      "frames": 147120,
+      "source_url": "https://raw.githubusercontent.com/lyswhut/lx-music-desktop/ad95d5091c9ed689fa72b5e5c849df65f5a679ce/src/renderer/assets/medias/filters/matrix-reverb1.wav"
+    },
+    {
+      "id": "matrix_2",
+      "file_name": "matrix-reverb2.wav",
+      "main_gain": 1.3,
+      "send_gain": 1,
+      "sha256": "888b47ee698110b8e0de89aa8f03edfcd76f19485b2c08675d5ff1d72c6c1343",
+      "encoded_bytes": 503808,
+      "sample_rate": 44100,
+      "channels": 2,
+      "frames": 124928,
+      "source_url": "https://raw.githubusercontent.com/lyswhut/lx-music-desktop/ad95d5091c9ed689fa72b5e5c849df65f5a679ce/src/renderer/assets/medias/filters/matrix-reverb2.wav"
+    },
+    {
+      "id": "cardiod_35_10_spread",
+      "file_name": "cardiod-35-10-spread.wav",
+      "main_gain": 1.8,
+      "send_gain": 0.6,
+      "sha256": "cf3ab1550ea86065baa9f63a00c6265de7360e167a0bc6a1d0ca54b3f97050ad",
+      "encoded_bytes": 637440,
+      "sample_rate": 44100,
+      "channels": 2,
+      "frames": 158336,
+      "source_url": "https://raw.githubusercontent.com/lyswhut/lx-music-desktop/ad95d5091c9ed689fa72b5e5c849df65f5a679ce/src/renderer/assets/medias/filters/cardiod-35-10-spread.wav"
+    },
+    {
+      "id": "tim_omni_35_10_magnetic",
+      "file_name": "tim-omni-35-10-magnetic.wav",
+      "main_gain": 1,
+      "send_gain": 0.2,
+      "sha256": "d73086428420282fe2452f71e289d8521ac9b118947637e9ef97bc832de710c4",
+      "encoded_bytes": 677044,
+      "sample_rate": 44100,
+      "channels": 2,
+      "frames": 168237,
+      "source_url": "https://raw.githubusercontent.com/lyswhut/lx-music-desktop/ad95d5091c9ed689fa72b5e5c849df65f5a679ce/src/renderer/assets/medias/filters/tim-omni-35-10-magnetic.wav"
+    },
+    {
+      "id": "feedback_spring",
+      "file_name": "feedback-spring.wav",
+      "main_gain": 1.8,
+      "send_gain": 0.8,
+      "sha256": "41d038558169517e38995325de9309c28ebf7c01abda579ec58670043f1961ba",
+      "encoded_bytes": 709696,
+      "sample_rate": 44100,
+      "channels": 2,
+      "frames": 176400,
+      "source_url": "https://raw.githubusercontent.com/lyswhut/lx-music-desktop/ad95d5091c9ed689fa72b5e5c849df65f5a679ce/src/renderer/assets/medias/filters/feedback-spring.wav"
+    }
+  ]
+}

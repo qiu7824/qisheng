@@ -1,0 +1,173 @@
+{
+  "packages": [
+    {
+      "name": "option-ext",
+      "version": "0.2.0",
+      "license": "MPL-2.0",
+      "source_archive": "third-party-source/option-ext-0.2.0.crate",
+      "source_sha256": "04744f49eae99ab78e0d5c0b603ab218f515ea8cfe5a456d7629ad883a3b6e7d",
+      "bytes": 7345,
+      "upstream_source_url": "https://crates.io/api/v1/crates/option-ext/0.2.0/download",
+      "notices": [
+        "third-party/option-ext-0.2.0/LICENSE.txt"
+      ],
+      "source_modified": false
+    },
+    {
+      "name": "symphonia",
+      "version": "0.5.5",
+      "license": "MPL-2.0",
+      "source_archive": "third-party-source/symphonia-0.5.5.crate",
+      "source_sha256": "5773a4c030a19d9bfaa090f49746ff35c75dfddfa700df7a5939d5e076a57039",
+      "bytes": 12085,
+      "upstream_source_url": "https://crates.io/api/v1/crates/symphonia/0.5.5/download",
+      "notices": [
+        "third-party/symphonia-0.5.5/LICENSE"
+      ],
+      "source_modified": false
+    },
+    {
+      "name": "symphonia-bundle-flac",
+      "version": "0.5.5",
+      "license": "MPL-2.0",
+      "source_archive": "third-party-source/symphonia-bundle-flac-0.5.5.crate",
+      "source_sha256": "c91565e180aea25d9b80a910c546802526ffd0072d0b8974e3ebe59b686c9976",
+      "bytes": 24141,
+      "upstream_source_url": "https://crates.io/api/v1/crates/symphonia-bundle-flac/0.5.5/download",
+      "notices": [
+        "third-party/symphonia-bundle-flac-0.5.5/LICENSE"
+      ],
+      "source_modified": false
+    },
+    {
+      "name": "symphonia-bundle-mp3",
+      "version": "0.5.5",
+      "license": "MPL-2.0",
+      "source_archive": "third-party-source/symphonia-bundle-mp3-0.5.5.crate",
+      "source_sha256": "4872dd6bb56bf5eac799e3e957aa1981086c3e613b27e0ac23b176054f7c57ed",
+      "bytes": 61019,
+      "upstream_source_url": "https://crates.io/api/v1/crates/symphonia-bundle-mp3/0.5.5/download",
+      "notices": [
+        "third-party/symphonia-bundle-mp3-0.5.5/LICENSE"
+      ],
+      "source_modified": false
+    },
+    {
+      "name": "symphonia-codec-aac",
+      "version": "0.5.5",
+      "license": "MPL-2.0",
+      "source_archive": "third-party-source/symphonia-codec-aac-0.5.5.crate",
+      "source_sha256": "4c263845aa86881416849c1729a54c7f55164f8b96111dba59de46849e73a790",
+      "bytes": 26471,
+      "upstream_source_url": "https://crates.io/api/v1/crates/symphonia-codec-aac/0.5.5/download",
+      "notices": [
+        "third-party/symphonia-codec-aac-0.5.5/LICENSE"
+      ],
+      "source_modified": false
+    },
+    {
+      "name": "symphonia-codec-pcm",
+      "version": "0.5.5",
+      "license": "MPL-2.0",
+      "source_archive": "third-party-source/symphonia-codec-pcm-0.5.5.crate",
+      "source_sha256": "4e89d716c01541ad3ebe7c91ce4c8d38a7cf266a3f7b2f090b108fb0cb031d95",
+      "bytes": 6795,
+      "upstream_source_url": "https://crates.io/api/v1/crates/symphonia-codec-pcm/0.5.5/download",
+      "notices": [
+        "third-party/symphonia-codec-pcm-0.5.5/LICENSE"
+      ],
+      "source_modified": false
+    },
+    {
+      "name": "symphonia-codec-vorbis",
+      "version": "0.5.5",
+      "license": "MPL-2.0",
+      "source_archive": "third-party-source/symphonia-codec-vorbis-0.5.5.crate",
+      "source_sha256": "f025837c309cd69ffef572750b4a2257b59552c5399a5e49707cc5b1b85d1c73",
+      "bytes": 25527,
+      "upstream_source_url": "https://crates.io/api/v1/crates/symphonia-codec-vorbis/0.5.5/download",
+      "notices": [
+        "third-party/symphonia-codec-vorbis-0.5.5/LICENSE"
+      ],
+      "source_modified": false
+    },
+    {
+      "name": "symphonia-core",
+      "version": "0.5.5",
+      "license": "MPL-2.0",
+      "source_archive": "third-party-source/symphonia-core-0.5.5.crate",
+      "source_sha256": "ea00cc4f79b7f6bb7ff87eddc065a1066f3a43fe1875979056672c9ef948c2af",
+      "bytes": 99682,
+      "upstream_source_url": "https://crates.io/api/v1/crates/symphonia-core/0.5.5/download",
+      "notices": [
+        "third-party/symphonia-core-0.5.5/LICENSE"
+      ],
+      "source_modified": false
+    },
+    {
+      "name": "symphonia-format-isomp4",
+      "version": "0.5.5",
+      "license": "MPL-2.0",
+      "source_archive": "third-party-source/symphonia-format-isomp4-0.5.5.crate",
+      "source_sha256": "243739585d11f81daf8dac8d9f3d18cc7898f6c09a259675fc364b382c30e0a5",
+      "bytes": 37184,
+      "upstream_source_url": "https://crates.io/api/v1/crates/symphonia-format-isomp4/0.5.5/download",
+      "notices": [
+        "third-party/symphonia-format-isomp4-0.5.5/LICENSE"
+      ],
+      "source_modified": false
+    },
+    {
+      "name": "symphonia-format-ogg",
+      "version": "0.5.5",
+      "license": "MPL-2.0",
+      "source_archive": "third-party-source/symphonia-format-ogg-0.5.5.crate",
+      "source_sha256": "2b4955c67c1ed3aa8ae8428d04ca8397fbef6a19b2b051e73b5da8b1435639cb",
+      "bytes": 24285,
+      "upstream_source_url": "https://crates.io/api/v1/crates/symphonia-format-ogg/0.5.5/download",
+      "notices": [
+        "third-party/symphonia-format-ogg-0.5.5/LICENSE"
+      ],
+      "source_modified": false
+    },
+    {
+      "name": "symphonia-format-riff",
+      "version": "0.5.5",
+      "license": "MPL-2.0",
+      "source_archive": "third-party-source/symphonia-format-riff-0.5.5.crate",
+      "source_sha256": "c2d7c3df0e7d94efb68401d81906eae73c02b40d5ec1a141962c592d0f11a96f",
+      "bytes": 17993,
+      "upstream_source_url": "https://crates.io/api/v1/crates/symphonia-format-riff/0.5.5/download",
+      "notices": [
+        "third-party/symphonia-format-riff-0.5.5/LICENSE"
+      ],
+      "source_modified": false
+    },
+    {
+      "name": "symphonia-metadata",
+      "version": "0.5.5",
+      "license": "MPL-2.0",
+      "source_archive": "third-party-source/symphonia-metadata-0.5.5.crate",
+      "source_sha256": "36306ff42b9ffe6e5afc99d49e121e0bd62fe79b9db7b9681d48e29fa19e6b16",
+      "bytes": 24184,
+      "upstream_source_url": "https://crates.io/api/v1/crates/symphonia-metadata/0.5.5/download",
+      "notices": [
+        "third-party/symphonia-metadata-0.5.5/LICENSE"
+      ],
+      "source_modified": false
+    },
+    {
+      "name": "symphonia-utils-xiph",
+      "version": "0.5.5",
+      "license": "MPL-2.0",
+      "source_archive": "third-party-source/symphonia-utils-xiph-0.5.5.crate",
+      "source_sha256": "ee27c85ab799a338446b68eec77abf42e1a6f1bb490656e121c6e27bfbab9f16",
+      "bytes": 6617,
+      "upstream_source_url": "https://crates.io/api/v1/crates/symphonia-utils-xiph/0.5.5/download",
+      "notices": [
+        "third-party/symphonia-utils-xiph-0.5.5/LICENSE"
+      ],
+      "source_modified": false
+    }
+  ]
+}

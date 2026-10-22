@@ -1,0 +1,84 @@
+LX Native
+Copyright 2026 LX Native contributors.
+
+This implementation references LX Music Desktop's published custom-source
+protocol and its official source code for compatibility analysis.
+Upstream project: https://github.com/lyswhut/lx-music-desktop
+Reference: v2.12.6, ad95d5091c9ed689fa72b5e5c849df65f5a679ce.
+Upstream copyright and attribution: lyswhut and LX Music contributors;
+see the original upstream license and supplementary agreements preserved in
+licenses/upstream (LICENSE, license_zh.txt, license_en.txt, license.rtf).
+
+The Rust host, ZSUI desktop interface, bounded Boa adapter, audio engine, and synthetic
+audio fixtures are independent implementations of the documented behavior.
+The execution environment, supported capabilities, limits, and UI differ from
+the Electron implementation; README.md lists the implemented subset.
+No upstream artwork, fonts, Font Awesome Pro assets, or third-party source
+scripts are included. Original fixture scripts are dedicated under CC0-1.0.
+
+The upstream root Apache-2.0 license coexists with supplementary terms.
+This notice does not resolve their legal relationship or grant commercial
+permission beyond the rights in the applicable licenses.
+
+DSP components and algorithm reference
+
+The dynamics compressor, convolution normalization and equal-power spatial
+algorithms reference Chromium 148.0.7778.280 Blink audio sources. Original
+Google/Apple copyright notices and redistribution conditions are preserved
+verbatim in licenses/third-party/chromium-audio-148.0.7778.280, including the
+source and binary redistribution conditions of each referenced component.
+The native Rust implementations retain those notices and use fixed storage,
+explicit resource ownership, media timing and device handover.
+
+Original convolution impulse responses
+
+The 13 lossless WAV files in assets/impulses are the original resources exported
+by LX Music Desktop v2.12.6, commit ad95d5091c9ed689fa72b5e5c849df65f5a679ce,
+from src/renderer/assets/medias/filters. Preset identifiers and linear gains
+follow that commit's src/renderer/plugins/player/index.ts. The asset manifest
+preserves the individual upstream URLs, SHA-256 digests and PCM geometry.
+Upstream copyright and attribution remain with lyswhut and LX Music contributors
+and the applicable original resource authors. The complete upstream root license
+and supplementary terms are preserved in licenses/upstream; including these
+assets does not grant commercial permission beyond those applicable terms.
+
+The native FFT path uses RustFFT 6.4.1 and its locked numerical dependencies:
+primal-check 0.3.4, strength_reduce 0.2.4, transpose 0.2.3, num-complex 0.4.6,
+num-integer 0.1.47, num-traits 0.2.19, and the autocfg 1.5.1 build tool.
+Their original MIT and Apache-2.0 texts are preserved in licenses/third-party.
+
+The native pitch processor is implemented in Rust with reference to the Phaze
+peak-region design (https://github.com/olvb/phaze) and the fixed LX Music Desktop
+worklet reference above. The Phaze Unlicense is preserved in
+licenses/third-party/phaze/LICENSE. FFT operations use RustFFT; the reference
+JavaScript FFT source is not included in this implementation.
+Component versions, upstream references and local license paths are listed in
+docs/dsp-licenses.md.
+
+Windows dependency notices
+
+The locked Windows backend and desktop dependency inventory is provided in
+licenses/dependency-manifest.json. Exact original copyright and license files
+available in the locked crate distributions are retained under
+licenses/third-party/<package>-<version>. The manifest records each package's
+declared license, repository, crate checksum and preserved notice checksums.
+Original notices from upstream repositories are bound to their recorded Git
+commit and blob checksum. Notices added after a crate's source commit retain
+their own notice commit; unresolved applicability is identified in the manifest.
+Those declarations do not replace the applicable original license terms.
+
+MPL-2.0 component source
+
+The original source archives for the locked MPL-2.0 components are included
+under licenses/third-party-source. Package versions, source archive checksums,
+upstream download URLs and the associated notices are listed in
+licenses/third-party-source-manifest.json. The corresponding component source
+files match the locked original distributions without local modifications.
+
+ZSUI desktop framework
+
+The desktop player includes ZSUI 0.3.0-alpha.1, licensed under MPL-2.0.
+The corresponding framework source, including the desktop integration changes,
+is provided in vendor/zsui in the source distribution and in
+licenses/zsui-source.zip in the Windows package. Its original license and
+third-party asset notices are preserved with that source.

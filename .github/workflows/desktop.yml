@@ -1,0 +1,243 @@
+name: Desktop validation and packages
+
+on:
+  workflow_dispatch:
+    inputs:
+      platform:
+        description: Native platforms to validate
+        type: choice
+        options: [all, windows, macos, linux]
+        default: all
+        required: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: desktop-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  matrix:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      targets: ${{ steps.select.outputs.targets }}
+    steps:
+      - id: select
+        env:
+          SELECTED_PLATFORM: ${{ inputs.platform }}
+        run: |
+          python3 - <<'PY'
+          import json, os
+          targets = [
+              dict(os='windows', runner='windows-2025', target='x86_64-pc-windows-msvc', label='Windows-x64', jobs=2),
+              dict(os='macos', runner='macos-15', target='aarch64-apple-darwin', label='macOS-arm64', jobs=1),
+              dict(os='macos', runner='macos-15-intel', target='x86_64-apple-darwin', label='macOS-x64', jobs=2),
+              dict(os='linux', runner='ubuntu-24.04', target='x86_64-unknown-linux-gnu', label='Linux-x64', jobs=2),
+          ]
+          selected = os.environ['SELECTED_PLATFORM']
+          targets = [row for row in targets if selected == 'all' or row['os'] == selected]
+          assert targets, 'No supported target selected'
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
+              output.write('targets=' + json.dumps({'include': targets}) + '\n')
+          PY
+
+  desktop:
+    needs: matrix
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix: ${{ fromJSON(needs.matrix.outputs.targets) }}
+    defaults:
+      run:
+        shell: bash
+    env:
+      CARGO_TARGET_DIR: ${{ runner.temp }}/qisheng-target
+      CARGO_BUILD_JOBS: ${{ matrix.jobs }}
+      CARGO_INCREMENTAL: '0'
+      CARGO_PROFILE_DEV_DEBUG: '0'
+      CARGO_PROFILE_TEST_DEBUG: '0'
+      RUST_BACKTRACE: '1'
+      MACOSX_DEPLOYMENT_TARGET: '15.0'
+      QISHENG_CI_ROOT: ${{ runner.temp }}/qisheng-ci
+      QISHENG_TARGET: ${{ matrix.target }}
+      QISHENG_LABEL: ${{ matrix.label }}
+      PYTHONUTF8: '1'
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+
+      - name: Prepare isolated output and test directories
+        id: prepare
+        run: |
+          python - <<'PY'
+          import os
+          from pathlib import Path
+          root = Path(os.environ['QISHENG_CI_ROOT'])
+          for name in ['evidence', 'packages', 'temp']:
+              (root / name).mkdir(parents=True, exist_ok=True)
+          with open(os.environ['GITHUB_ENV'], 'a') as output:
+              for key in ['TMP', 'TEMP', 'TMPDIR']:
+                  output.write(f'{key}={root / "temp"}\n')
+          PY
+
+      - name: Linux native dependencies
+        if: matrix.os == 'linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y build-essential pkg-config libasound2-dev libcairo2-dev libpango1.0-dev libfontconfig1-dev libxkbcommon-dev libwayland-dev libx11-dev libxext-dev libxrandr-dev libxi-dev libxcursor-dev libxfixes-dev libegl1-mesa-dev libgl1-mesa-dev xvfb xauth dbus-x11 zenity
+
+      - name: Rust toolchain and native target identity
+        run: |
+          rustup toolchain install 1.99.0 --profile minimal --component rustfmt --component clippy
+          rustup override set 1.99.0
+          rustc -vV | tee "$QISHENG_CI_ROOT/evidence/toolchain.txt"
+          python - <<'PY'
+          import os, subprocess
+          host = next(line.removeprefix('host: ') for line in subprocess.check_output(['rustc', '-vV'], text=True).splitlines() if line.startswith('host: '))
+          assert host == os.environ['QISHENG_TARGET'], (host, os.environ['QISHENG_TARGET'])
+          PY
+
+      - name: Reuse dependency downloads
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+          key: qisheng-deps-${{ matrix.target }}-${{ hashFiles('Cargo.lock') }}
+          restore-keys: qisheng-deps-${{ matrix.target }}-
+
+      - name: Formatting
+        run: cargo fmt --all -- --check
+
+      - name: Native compilation of every test target
+        run: |
+          set -o pipefail
+          cargo check --locked --all-targets 2>&1 | tee "$QISHENG_CI_ROOT/evidence/check.log"
+
+      - name: Unit and integration tests
+        run: |
+          set -o pipefail
+          cargo test --locked --all-targets -- --test-threads=1 2>&1 | tee "$QISHENG_CI_ROOT/evidence/tests.log"
+
+      - name: Build native window smoke executable
+        run: |
+          set -o pipefail
+          cargo build --locked --release --features smoke --bin lx-native 2>&1 | tee "$QISHENG_CI_ROOT/evidence/smoke-build.log"
+
+      - name: Real native window and isolated profile smoke
+        run: |
+          python - <<'PY'
+          import os, platform, subprocess
+          from pathlib import Path
+          root = Path(os.environ['QISHENG_CI_ROOT'])
+          executable = Path(os.environ['CARGO_TARGET_DIR']) / 'release' / ('lx-native.exe' if os.name == 'nt' else 'lx-native')
+          screenshot = root / 'evidence' / 'native-window.png'
+          command = [str(executable), '--data-dir', str(root / 'temp' / 'smoke-profile'), '--audio', 'memory', '--smoke', str(screenshot), '--smoke-ms', '2000']
+          if platform.system() == 'Linux':
+              command = ['dbus-run-session', '--', 'xvfb-run', '-a', '-s', '-screen 0 1440x1000x24'] + command
+          result = subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=90)
+          (root / 'evidence' / 'native-window.log').write_bytes(result.stdout)
+          assert result.returncode == 0, result.stdout.decode(errors='replace')[-5000:]
+          assert screenshot.exists() and screenshot.stat().st_size > 1024, 'Native screenshot missing'
+          PY
+
+      - name: Build production executables
+        run: |
+          set -o pipefail
+          cargo build --locked --release --bin lx-native --bin lx-native-cli 2>&1 | tee "$QISHENG_CI_ROOT/evidence/release-build.log"
+
+      - name: Package native applications
+        run: |
+          python - <<'PY'
+          import hashlib, json, os, platform, plistlib, shutil, subprocess, tarfile, tomllib, zipfile
+          from pathlib import Path
+          source = Path.cwd()
+          root = Path(os.environ['QISHENG_CI_ROOT'])
+          binaries = Path(os.environ['CARGO_TARGET_DIR']) / 'release'
+          version = tomllib.loads((source / 'Cargo.toml').read_text(encoding='utf-8'))['package']['version']
+          name = 'Qisheng-' + version + '-' + os.environ['QISHENG_LABEL']
+          staging = root / 'temp' / name
+          staging.mkdir()
+          system = platform.system()
+          if system == 'Darwin':
+              bundle = staging / '栖声.app'
+              contents = bundle / 'Contents'
+              executables = contents / 'MacOS'
+              resources = contents / 'Resources'
+              executables.mkdir(parents=True)
+              resources.mkdir()
+              app = executables / 'qisheng'
+              cli = executables / 'qisheng-cli'
+              with (contents / 'Info.plist').open('wb') as output:
+                  plistlib.dump(dict(CFBundleIdentifier='com.qisheng.desktop', CFBundleName='栖声', CFBundleDisplayName='栖声', CFBundleExecutable='qisheng', CFBundlePackageType='APPL', CFBundleShortVersionString=version.split('-')[0], CFBundleVersion=os.environ['GITHUB_RUN_NUMBER'], LSMinimumSystemVersion='15.0', NSHighResolutionCapable=True, NSPrincipalClass='NSApplication'), output)
+          else:
+              app = staging / ('栖声.exe' if system == 'Windows' else 'qisheng')
+              cli = staging / ('qisheng-cli.exe' if system == 'Windows' else 'qisheng-cli')
+          suffix = '.exe' if system == 'Windows' else ''
+          shutil.copy2(binaries / ('lx-native' + suffix), app)
+          shutil.copy2(binaries / ('lx-native-cli' + suffix), cli)
+          if system != 'Windows':
+              app.chmod(0o755)
+              cli.chmod(0o755)
+          for document in ['LICENSE', 'NOTICE']:
+              shutil.copy2(source / document, staging / document)
+          shutil.copytree(source / 'licenses', staging / 'licenses')
+          if system == 'Windows':
+              vswhere = Path(os.environ['ProgramFiles(x86)']) / 'Microsoft Visual Studio/Installer/vswhere.exe'
+              installation = subprocess.check_output([str(vswhere), '-latest', '-products', '*', '-requires', 'Microsoft.VisualStudio.Component.VC.Tools.x86.x64', '-property', 'installationPath'], text=True).strip()
+              candidates = sorted((Path(installation) / 'VC/Redist/MSVC').glob('*/x64/Microsoft.VC*.CRT/vcruntime140.dll'))
+              assert candidates, 'MSVC runtime not located'
+              for dll in candidates[-1].parent.glob('vcruntime140*.dll'):
+                  shutil.copy2(dll, staging / dll.name)
+          elif system == 'Darwin':
+              subprocess.run(['codesign', '--force', '--sign', '-', str(cli)], check=True)
+              subprocess.run(['codesign', '--force', '--sign', '-', str(app)], check=True)
+              subprocess.run(['codesign', '--force', '--sign', '-', str(bundle)], check=True)
+              subprocess.run(['codesign', '--verify', '--deep', '--strict', str(bundle)], check=True)
+          else:
+              shutil.copy2(source / 'assets/lx-native.png', staging / 'qisheng.png')
+              (staging / 'qisheng.desktop').write_text('[Desktop Entry]\nType=Application\nName=栖声\nExec=qisheng %F\nIcon=qisheng\nTerminal=false\nCategories=AudioVideo;Audio;Player;\nMimeType=audio/mpeg;audio/flac;audio/ogg;audio/x-wav;\n', encoding='utf-8')
+          result = subprocess.run([str(cli), '--data-dir', str(root / 'temp' / 'package-profile'), 'status'], capture_output=True, timeout=45)
+          (root / 'evidence' / 'packaged-cli.log').write_bytes(result.stdout + result.stderr)
+          assert result.returncode == 0, result.stderr.decode(errors='replace')[-3000:]
+          facts = dict(version=version, target=os.environ['QISHENG_TARGET'], commit=os.environ['GITHUB_SHA'], workflowRun=os.environ['GITHUB_RUN_ID'], automatedTests='passed', nativeWindow='passed', audioVerification='memory rendering; physical output requires hardware validation', signing='ad-hoc; no Apple notarization' if system == 'Darwin' else 'unsigned')
+          (staging / 'BUILD.json').write_text(json.dumps(facts, ensure_ascii=False, indent=2), encoding='utf-8')
+          files = sorted(path for path in staging.rglob('*') if path.is_file())
+          (staging / 'SHA256SUMS.txt').write_text(''.join(hashlib.sha256(path.read_bytes()).hexdigest() + '  ' + path.relative_to(staging).as_posix() + '\n' for path in files), encoding='utf-8')
+          packages = root / 'packages'
+          if system == 'Darwin':
+              subprocess.run(['ditto', '-c', '-k', '--sequesterRsrc', '--keepParent', str(staging), str(packages / (name + '.zip'))], check=True)
+              subprocess.run(['hdiutil', 'create', '-volname', '栖声', '-srcfolder', str(staging), '-ov', '-format', 'UDZO', str(packages / (name + '.dmg'))], check=True)
+          elif system == 'Windows':
+              with zipfile.ZipFile(packages / (name + '.zip'), 'w', zipfile.ZIP_DEFLATED) as archive:
+                  for path in staging.rglob('*'):
+                      if path.is_file():
+                          archive.write(path, path.relative_to(staging.parent).as_posix())
+          else:
+              with tarfile.open(packages / (name + '.tar.gz'), 'w:gz') as archive:
+                  archive.add(staging, arcname=name)
+          (packages / 'SHA256SUMS.txt').write_text(''.join(hashlib.sha256(path.read_bytes()).hexdigest() + '  ' + path.name + '\n' for path in sorted(packages.iterdir()) if path.is_file()), encoding='utf-8')
+          PY
+
+      - name: Validated packages
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: Qisheng-${{ matrix.label }}-${{ github.sha }}
+          path: ${{ runner.temp }}/qisheng-ci/packages/*
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Test and native window evidence
+        if: always() && steps.prepare.outcome == 'success'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: Evidence-${{ matrix.label }}-${{ github.sha }}
+          path: ${{ runner.temp }}/qisheng-ci/evidence/*
+          if-no-files-found: warn
+          retention-days: 7
