@@ -589,10 +589,13 @@ fn native_import_refreshes_actual_current_edited_lyrics_without_restarting_playb
         .load()
         .unwrap();
     assert_eq!(after_import.local_files, original_store.local_files);
+    let selected_path = fs::canonicalize(&path).unwrap();
     let actual_asset = fixture::assets(&running.backend, None)
         .into_iter()
-        .find(|asset| asset.asset.path == path)
-        .unwrap();
+        .find(|asset| {
+            fs::canonicalize(&asset.asset.path).is_ok_and(|actual| actual == selected_path)
+        })
+        .expect("The selected audio must retain its durable local asset binding");
     let BackendQueryResult::LibraryAssetBinding(Some(binding)) = running
         .backend
         .query(BackendQuery::LibraryAssetBinding {

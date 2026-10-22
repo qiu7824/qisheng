@@ -37,6 +37,7 @@ jobs:
             qisheng-native-aarch64-apple-darwin-rust-1.99.0-${{ hashFiles('Cargo.lock', '.cargo/config.toml') }}
             qisheng-native-aarch64-apple-darwin-rust-1.99.0-
       - name: Native per-profile IPC
+        id: ipc
         run: |
           set -o pipefail
           cargo test --locked --bin lx-native instance:: -- --test-threads=1 2>&1 | tee "$RUNNER_TEMP/native-launch.log"
@@ -45,10 +46,13 @@ jobs:
           set -o pipefail
           cargo test --locked --no-fail-fast --test backend_backup --test backend_native_restore -- --test-threads=1 2>&1 | tee "$QISHENG_CI_ROOT/evidence/restore-tests.log"
       - name: Build native interaction executable
+        id: interaction_build
+        if: ${{ !cancelled() && steps.ipc.outcome == 'success' }}
         run: |
           set -o pipefail
           cargo build --locked --profile test --features smoke --bin lx-native 2>&1 | tee "$QISHENG_CI_ROOT/evidence/interaction-build.log"
       - name: Native window lifecycle and file panels
+        if: ${{ !cancelled() && steps.interaction_build.outcome == 'success' }}
         run: python3 .github/scripts/native_smoke.py
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
