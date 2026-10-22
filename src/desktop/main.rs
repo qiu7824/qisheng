@@ -187,29 +187,46 @@ fn run() -> anyhow::Result<()> {
                 std::env::var_os("ZSUI_NATIVE_OWNER_FILE_DIALOG_PROOF_DIR").is_some(),
                 "Picker proof requires an explicit screenshot directory"
             );
-            Some(std::thread::spawn(|| -> anyhow::Result<()> {
+            let observed = inbox.clone();
+            Some(std::thread::spawn(move || -> anyhow::Result<()> {
                 use zsui::{FileDialogService, FileDialogSpec, NativeFileDialogService};
                 std::thread::sleep(Duration::from_secs(3));
+                let deadline = std::time::Instant::now() + Duration::from_secs(3);
+                while instance_smoke && observed.handled_count() == 0 {
+                    anyhow::ensure!(
+                        std::time::Instant::now() < deadline,
+                        "The UI did not process the forwarded launch before opening its panel"
+                    );
+                    std::thread::sleep(Duration::from_millis(20));
+                }
                 let mut dialogs = NativeFileDialogService::new();
+                eprintln!("native-picker:file-open");
                 anyhow::ensure!(
                     dialogs
                         .open_file_dialog(&FileDialogSpec::new("导入音乐"))?
                         .is_none(),
                     "The automated file panel should be cancelled"
                 );
+                eprintln!("native-picker:file-cancelled");
                 std::thread::sleep(Duration::from_secs(1));
+                eprintln!("native-picker:folder-open");
                 anyhow::ensure!(
                     dialogs
                         .pick_folder(&FileDialogSpec::new("添加音乐文件夹"))?
                         .is_none(),
                     "The automated folder panel should be cancelled"
                 );
+                eprintln!("native-picker:folder-cancelled");
                 Ok(())
             }))
         } else {
             None
         };
         let report = builder.run_smoke(smoke_options(&args.raw)?)?;
+        eprintln!(
+            "native-window:capture-complete; relaunches={}",
+            inbox.handled_count()
+        );
         if let Some(probe) = close_probe {
             probe
                 .join()

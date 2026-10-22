@@ -37,7 +37,13 @@ with (evidence / 'window-manager.log').open('wb') as manager_log, (evidence / 'n
         forwarded = subprocess.run([str(executable), '--data-dir', str(profile), '--audio', 'memory', str(fixture)], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=20)
         (evidence / 'second-launch.log').write_bytes(forwarded.stdout)
         assert forwarded.returncode == 0, forwarded.stdout.decode(errors='replace')[-3000:]
-        assert primary.wait(timeout=90) == 0, 'Native window failed; see native-window.log'
+        try:
+            assert primary.wait(timeout=30) == 0, 'Native window failed; see native-window.log'
+        except subprocess.TimeoutExpired:
+            if platform.system() == 'Darwin':
+                sample = subprocess.run(['sample', str(primary.pid), '1', '1', '-file', str(evidence / 'native-hang.txt')], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=10)
+                (evidence / 'native-sample.log').write_bytes(sample.stdout)
+            raise
     finally:
         for process in [primary, manager]:
             if process is not None and process.poll() is None:

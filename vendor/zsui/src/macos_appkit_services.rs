@@ -64,6 +64,7 @@ struct ZsuiAppKitRuntimeDelegateIvars {
     proof_resize_event_count: Cell<usize>,
     proof_resize_evidence: RefCell<Option<crate::NativeWindowResizeEvidence>>,
     proof_resize_error: RefCell<Option<String>>,
+    proof_finished: Cell<bool>,
 }
 
 define_class!(
@@ -75,6 +76,26 @@ define_class!(
     unsafe impl NSObjectProtocol for ZsuiAppKitRuntimeDelegate {}
 
     unsafe impl NSApplicationDelegate for ZsuiAppKitRuntimeDelegate {}
+
+    impl ZsuiAppKitRuntimeDelegate {
+        #[unsafe(method(zsuiFinishSmoke:))]
+        fn finish_smoke(&self, timer: &objc2_foundation::NSTimer) {
+            timer.invalidate();
+            self.run_proof_inputs_and_capture();
+            let application = NSApplication::sharedApplication(self.mtm());
+            application.stop(None);
+            // Wake nextEvent so the application observes stop after a timer,
+            // even when no mouse or keyboard events arrive in a CI session.
+            use objc2_app_kit::{NSEvent, NSEventModifierFlags, NSEventType};
+            #[allow(deprecated)]
+            if let Some(event) = NSEvent::otherEventWithType_location_modifierFlags_timestamp_windowNumber_context_subtype_data1_data2(
+                NSEventType::ApplicationDefined, NSPoint::new(0.0, 0.0),
+                NSEventModifierFlags::empty(), 0.0, 0, None, 0, 0, 0,
+            ) {
+                application.postEvent_atStart(&event, true);
+            }
+        }
+    }
 
     unsafe impl NSWindowDelegate for ZsuiAppKitRuntimeDelegate {
         #[unsafe(method(windowShouldClose:))]
@@ -118,6 +139,9 @@ define_class!(
 
 impl ZsuiAppKitRuntimeDelegate {
     fn run_proof_inputs_and_capture(&self) {
+        if self.ivars().proof_finished.replace(true) {
+            return;
+        }
         if let Some(handler) = self.ivars().capture_handler.as_ref() {
             if let Some(requested_size) = self.ivars().proof_resize {
                 let events_before = self.ivars().proof_resize_event_count.get();
@@ -216,6 +240,7 @@ impl ZsuiAppKitRuntimeDelegate {
             proof_resize_event_count: Cell::new(0),
             proof_resize_evidence: RefCell::new(None),
             proof_resize_error: RefCell::new(None),
+            proof_finished: Cell::new(false),
         });
         unsafe { msg_send![super(this), init] }
     }
@@ -391,9 +416,14 @@ pub(crate) fn run_macos_appkit_native_window_event_loop(
 
     let _dialog_dispatch = AppKitDialogDispatch::enter();
     if let Some(delay) = auto_close_after_ms {
-        application.finishLaunching();
-        let deadline = NSDate::dateWithTimeIntervalSinceNow(delay.max(1) as f64 / 1_000.0);
-        NSRunLoop::mainRunLoop().runUntilDate(&deadline);
+        let timer = unsafe {
+            objc2_foundation::NSTimer::scheduledTimerWithTimeInterval_target_selector_userInfo_repeats(
+                delay.max(1) as f64 / 1_000.0, &*delegate,
+                objc2::sel!(zsuiFinishSmoke:), None, false,
+            )
+        };
+        application.run();
+        timer.invalidate();
         delegate.run_proof_inputs_and_capture();
     } else {
         application.run();
