@@ -144,11 +144,6 @@ jobs:
           set -o pipefail
           cargo build --locked --profile test --bin lx-native-cli 2>&1 | tee "$QISHENG_CI_ROOT/evidence/worker-build.log"
 
-      - name: Core library tests
-        run: |
-          set -o pipefail
-          cargo test --locked --lib -- --test-threads=1 2>&1 | tee "$QISHENG_CI_ROOT/evidence/tests-core.log"
-
       - name: Application and integration tests
         run: |
           python - <<'PY'
@@ -189,6 +184,11 @@ jobs:
               code = process.wait()
           raise SystemExit(code)
           PY
+
+      - name: Core library tests
+        run: |
+          set -o pipefail
+          cargo test --locked --lib -- --test-threads=1 2>&1 | tee "$QISHENG_CI_ROOT/evidence/tests-core.log"
 
       - name: Build native window smoke executable
         run: |

@@ -18,7 +18,7 @@ use std::{
     path::Path,
     sync::{
         Arc, Mutex,
-        atomic::{AtomicBool, Ordering},
+        atomic::{AtomicBool, AtomicUsize, Ordering},
     },
     thread,
     time::{Duration, Instant},
@@ -168,6 +168,7 @@ pub struct Server {
     pub url: String,
     pub representation: Arc<Mutex<Representation>>,
     log: Arc<Mutex<Vec<HttpRecord>>>,
+    active: Arc<AtomicUsize>,
     stop: Arc<AtomicBool>,
     thread: Option<thread::JoinHandle<()>>,
 }
@@ -178,9 +179,11 @@ impl Server {
         let url = format!("http://{}/original.wav", listener.local_addr().unwrap());
         let representation = Arc::new(Mutex::new(Representation::default()));
         let log = Arc::new(Mutex::new(Vec::new()));
+        let active = Arc::new(AtomicUsize::new(0));
         let stop = Arc::new(AtomicBool::new(false));
         let worker_view = representation.clone();
         let worker_log = log.clone();
+        let worker_active = active.clone();
         let stopping = stop.clone();
         let thread = thread::spawn(move || {
             let mut clients = Vec::new();
@@ -190,7 +193,18 @@ impl Server {
                         let view = worker_view.clone();
                         let log = worker_log.clone();
                         let stop = stopping.clone();
-                        clients.push(thread::spawn(move || serve(socket, view, log, stop)));
+                        let active = worker_active.clone();
+                        active.fetch_add(1, Ordering::AcqRel);
+                        clients.push(thread::spawn(move || {
+                            struct RequestCompletion(Arc<AtomicUsize>);
+                            impl Drop for RequestCompletion {
+                                fn drop(&mut self) {
+                                    self.0.fetch_sub(1, Ordering::AcqRel);
+                                }
+                            }
+                            let _completion = RequestCompletion(active);
+                            serve(socket, view, log, stop);
+                        }));
                     }
                     Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
                         thread::sleep(Duration::from_millis(2))
@@ -206,6 +220,7 @@ impl Server {
             url,
             representation,
             log,
+            active,
             stop,
             thread: Some(thread),
         }
@@ -215,6 +230,17 @@ impl Server {
     }
     pub fn count(&self) -> usize {
         self.log.lock().unwrap().len()
+    }
+    /// Join the client transport first, then wait for response logging to retire.
+    pub fn wait_idle(&self) {
+        let started = Instant::now();
+        while self.active.load(Ordering::Acquire) != 0 {
+            assert!(
+                started.elapsed() < Duration::from_secs(8),
+                "HTTP fixture did not finish recording its responses"
+            );
+            thread::sleep(Duration::from_millis(2));
+        }
     }
     pub fn bytes_since(&self, cursor: usize) -> usize {
         self.log.lock().unwrap()[cursor..]

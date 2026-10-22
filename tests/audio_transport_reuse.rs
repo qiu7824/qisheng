@@ -80,8 +80,10 @@ fn fresh_approval_epoch_and_stream_serial_reuse_same_exact_representation() {
     assert_eq!(read_all(&transport, &context, &server.url, 1), *expected);
     let block_count = blocks(&root).len();
     assert!(block_count > 0);
+    server.wait_idle();
     let before = server.count();
     assert_eq!(read_all(&transport, &context, &server.url, 2), *expected);
+    server.wait_idle();
     assert_revalidation(&server.records()[before..]);
     assert_eq!(
         blocks(&root).len(),
@@ -443,6 +445,7 @@ fn cold_process_reopen_revalidates_and_reuses_owned_blocks() {
     let server = Server::new();
     ColdChild::warm(&root, &server).success();
     assert!(!blocks(&root).is_empty());
+    server.wait_idle();
     let before = server.count();
     let owner = transport(&root);
     assert_eq!(
@@ -452,6 +455,7 @@ fn cold_process_reopen_revalidates_and_reuses_owned_blocks() {
     );
     let actual = read_all(&owner, &Context::default(), &server.url, 30);
     assert_eq!(actual, *server.representation.lock().unwrap().body);
+    server.wait_idle();
     assert_revalidation(&server.records()[before..]);
     assert!(owner.shutdown(Duration::from_secs(8)));
 }
