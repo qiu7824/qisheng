@@ -2737,7 +2737,8 @@ impl MacosAppKitDrawSink {
         let Some(graphics_context) = NSGraphicsContext::currentContext() else {
             return;
         };
-        let context: *mut c_void = unsafe { msg_send![&*graphics_context, CGContext] };
+        let native_context = graphics_context.CGContext();
+        let context: *mut c_void = Retained::as_ptr(&native_context).cast_mut().cast();
         if context.is_null()
             || command.bounds.width <= 0
             || command.bounds.height <= 0
