@@ -1,4 +1,4 @@
-#![cfg(any(windows, target_os = "linux"))]
+#![cfg(any(windows, target_os = "linux", target_os = "macos"))]
 
 use lx_gpui_player::{
     backup::{
@@ -67,7 +67,7 @@ fn physical_identity(path: &std::path::Path) -> ExportFileIdentity {
                 .collect(),
         }
     }
-    #[cfg(target_os = "linux")]
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
     {
         use std::os::unix::fs::MetadataExt;
         let file = fs::File::open(path).unwrap();
@@ -641,9 +641,9 @@ fn windows_pending_delete_retains_retry_credential_after_original_handle_closes(
     assert_eq!(limiter.stats().active, 0);
 }
 
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 #[test]
-fn linux_anonymous_part_and_fd_link_do_not_follow_a_replaced_selected_namespace() {
+fn unix_temporary_storage_does_not_follow_a_replaced_selected_namespace() {
     let temp = tempfile::tempdir_in(std::env::temp_dir()).unwrap();
     let root = temp.path().join("selected");
     let moved = temp.path().join("moved");
@@ -657,7 +657,10 @@ fn linux_anonymous_part_and_fd_link_do_not_follow_a_replaced_selected_namespace(
         &context(),
         &limiter,
         |writer| {
-            assert_eq!(fs::read_dir(&root)?.count(), 0);
+            assert_eq!(
+                fs::read_dir(&root)?.count(),
+                usize::from(cfg!(target_os = "macos"))
+            );
             writer.write_all(b"{}")?;
             fs::rename(&root, &moved)?;
             fs::create_dir(&root)?;

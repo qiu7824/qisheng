@@ -335,6 +335,7 @@ struct DownloadReadInner {
     grant: Option<DownloadPinLoan>,
     stamp: Option<FileChangeStamp>,
     facts: DownloadReadFacts,
+    identity: FileIdentity,
     repository_ack: AtomicBool,
     origin: crate::download::DownloadContext,
     nonce: String,
@@ -369,11 +370,7 @@ impl DownloadOutputAuthority {
             .expect("Published read authority has its native reader")
     }
     fn identity(&self) -> FileIdentity {
-        FileIdentity {
-            kind: "windows_file_id".into(),
-            volume: format!("{:016x}", self.0.facts.identity().device),
-            file_id: self.0.facts.identity().object.clone(),
-        }
+        self.0.identity.clone()
     }
     pub(super) fn verify(&self) -> Result<()> {
         ensure!(
@@ -541,6 +538,10 @@ impl AuthorityRegistry {
             grant: None,
             stamp: None,
             facts: facts.clone(),
+            identity: FileIdentity::from_native_parts(
+                facts.identity().device,
+                &facts.identity().object,
+            )?,
             repository_ack: AtomicBool::new(false),
             origin,
             nonce: nonce.into(),

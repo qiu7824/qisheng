@@ -24,6 +24,27 @@ pub struct FileIdentity {
     pub file_id: String,
 }
 impl FileIdentity {
+    pub(crate) fn from_native_parts(device: u64, object: &str) -> Result<Self> {
+        let (kind, file_id) = if cfg!(windows) {
+            ensure!(
+                object.len() == 32 && object.bytes().all(|byte| byte.is_ascii_hexdigit()),
+                "Invalid Windows native file identity"
+            );
+            ("windows_file_id", object.to_ascii_lowercase())
+        } else if cfg!(unix) {
+            let inode = object
+                .parse::<u64>()
+                .map_err(|_| anyhow::anyhow!("Invalid Unix inode identity"))?;
+            ("unix_inode", format!("{inode:016x}"))
+        } else {
+            anyhow::bail!("Native file identities are unavailable on this platform");
+        };
+        Ok(Self {
+            kind: kind.into(),
+            volume: format!("{device:016x}"),
+            file_id,
+        })
+    }
     pub fn validate(&self) -> Result<()> {
         for (value, limit) in [(&self.kind, 64), (&self.volume, 128), (&self.file_id, 128)] {
             ensure!(
@@ -32,6 +53,37 @@ impl FileIdentity {
             );
         }
         Ok(())
+    }
+}
+#[cfg(test)]
+mod native_identity_tests {
+    use super::*;
+    #[test]
+    fn native_download_identity_matches_library_encoding_and_rejects_malformed_objects() {
+        let object = if cfg!(windows) {
+            "0123456789abcdef0123456789abcdef"
+        } else {
+            "42"
+        };
+        let identity = FileIdentity::from_native_parts(24, object).unwrap();
+        assert_eq!(identity.volume, "0000000000000018");
+        assert_eq!(
+            identity.file_id,
+            if cfg!(windows) {
+                object
+            } else {
+                "000000000000002a"
+            }
+        );
+        assert_eq!(
+            identity.kind,
+            if cfg!(windows) {
+                "windows_file_id"
+            } else {
+                "unix_inode"
+            }
+        );
+        assert!(FileIdentity::from_native_parts(24, "invalid").is_err());
     }
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]

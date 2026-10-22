@@ -450,11 +450,10 @@ impl Runtime {
             .output_audio
             .as_ref()
             .context("Downloaded output proof is unavailable")?;
-        let identity = crate::domain::library::FileIdentity {
-            kind: "windows_file_id".into(),
-            volume: format!("{:016x}", proof.identity.device),
-            file_id: proof.identity.object.clone(),
-        };
+        let identity = crate::domain::library::FileIdentity::from_native_parts(
+            proof.identity.device,
+            &proof.identity.object,
+        )?;
         ensure!(
             self.repository
                 .local_asset_file_identity(&asset.id)?

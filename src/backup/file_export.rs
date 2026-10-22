@@ -467,9 +467,21 @@ impl ExportPart {
         let digest = self.hash(context)?;
         self.verified_sha = Some(digest.clone());
         self.verify(context)?;
+        #[cfg(not(target_os = "macos"))]
         platform::publish(
             self.file(),
             self.plan.directory.parent(),
+            &self.plan.basename,
+            self.identity()?,
+        )?;
+        #[cfg(target_os = "macos")]
+        platform::publish_named(
+            self.file(),
+            self.plan.directory.parent(),
+            self.metadata
+                .temporary_name
+                .as_deref()
+                .context("Export temporary name missing")?,
             &self.plan.basename,
             self.identity()?,
         )?;
@@ -597,7 +609,17 @@ impl ExportPart {
                 #[cfg(not(windows))]
                 {
                     self.verify_object_in(directory, context)?;
+                    #[cfg(not(target_os = "macos"))]
                     platform::delete_private(self.file())?;
+                    #[cfg(target_os = "macos")]
+                    platform::delete_named(
+                        self.file(),
+                        directory.parent(),
+                        self.metadata
+                            .temporary_name
+                            .as_deref()
+                            .context("Export temporary name missing")?,
+                    )?;
                 }
                 self.deletion_requested = true;
                 drop(self.file.take());
@@ -764,7 +786,7 @@ pub fn export_with(
             .iter()
             .map(|byte| format!("{byte:02x}"))
             .collect::<String>();
-        let temporary_name = if cfg!(windows) {
+        let temporary_name = if cfg!(any(windows, target_os = "macos")) {
             Some(format!(".lx-export-{nonce}.part"))
         } else {
             None
@@ -1676,7 +1698,7 @@ mod platform {
     }
 }
 
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 mod platform {
     use super::*;
     use std::{
@@ -1775,6 +1797,7 @@ mod platform {
         }
         Ok(())
     }
+    #[cfg(target_os = "linux")]
     pub(super) fn create_private(parent: &File, _name: Option<&str>) -> Result<File> {
         let fd = unsafe {
             libc::openat(
@@ -1815,6 +1838,7 @@ mod platform {
         );
         Ok(())
     }
+    #[cfg(target_os = "linux")]
     pub(super) fn publish(
         file: &File,
         parent: &File,
@@ -1860,6 +1884,67 @@ mod platform {
         }
         Ok(())
     }
+    #[cfg(target_os = "macos")]
+    pub(super) fn create_private(parent: &File, name: Option<&str>) -> Result<File> {
+        let name = name.context("Named export allocation requires a nonce")?;
+        validate_basename(name)?;
+        let name = CString::new(name)?;
+        let descriptor = unsafe {
+            libc::openat(
+                parent.as_raw_fd(),
+                name.as_ptr(),
+                libc::O_RDWR | libc::O_CREAT | libc::O_EXCL | libc::O_CLOEXEC | libc::O_NOFOLLOW,
+                0o600,
+            )
+        };
+        if descriptor < 0 {
+            return Err(io::Error::last_os_error().into());
+        }
+        Ok(unsafe { File::from_raw_fd(descriptor) })
+    }
+    #[cfg(target_os = "macos")]
+    pub(super) fn publish_named(
+        file: &File,
+        parent: &File,
+        temporary: &str,
+        name: &str,
+        expected: &ExportFileIdentity,
+    ) -> Result<()> {
+        ensure!(
+            identity(file)? == *expected && links(file)? == 1,
+            "Export descriptor changed before publication"
+        );
+        verify_name(parent, temporary, expected)?;
+        validate_basename(name)?;
+        let old = CString::new(temporary)?;
+        let new = CString::new(name)?;
+        if unsafe {
+            libc::renameatx_np(
+                parent.as_raw_fd(),
+                old.as_ptr(),
+                parent.as_raw_fd(),
+                new.as_ptr(),
+                libc::RENAME_EXCL,
+            )
+        } != 0
+        {
+            return Err(io::Error::last_os_error())
+                .context("Cannot publish export without replacing an existing file");
+        }
+        Ok(())
+    }
+    #[cfg(target_os = "macos")]
+    pub(super) fn delete_named(file: &File, parent: &File, name: &str) -> Result<()> {
+        ensure!(links(file)? == 1, "Export cleanup refuses aliased files");
+        verify_name(parent, name, &identity(file)?)?;
+        let name = CString::new(name)?;
+        if unsafe { libc::unlinkat(parent.as_raw_fd(), name.as_ptr(), 0) } != 0 {
+            return Err(io::Error::last_os_error().into());
+        }
+        ensure!(links(file)? == 0, "Export namespace changed during cleanup");
+        parent.sync_all()?;
+        Ok(())
+    }
     pub(super) fn sync_directory(directory: &File) -> Result<()> {
         directory.sync_all()?;
         Ok(())
@@ -1872,15 +1957,33 @@ mod platform {
         Ok(())
     }
     pub(super) fn verify_absent(
-        _parent: &File,
-        _name: &str,
+        parent: &File,
+        name: &str,
         _expected: &ExportFileIdentity,
     ) -> Result<()> {
-        bail!("UnsupportedCapability: Linux anonymous exports have no private leaf")
+        let name = CString::new(name)?;
+        let mut metadata = std::mem::MaybeUninit::<libc::stat>::uninit();
+        if unsafe {
+            libc::fstatat(
+                parent.as_raw_fd(),
+                name.as_ptr(),
+                metadata.as_mut_ptr(),
+                libc::AT_SYMLINK_NOFOLLOW,
+            )
+        } == 0
+        {
+            bail!("Export cleanup leaf is still present");
+        }
+        let error = io::Error::last_os_error();
+        ensure!(
+            error.kind() == io::ErrorKind::NotFound,
+            "Cannot verify export cleanup: {error}"
+        );
+        Ok(())
     }
 }
 
-#[cfg(not(any(windows, target_os = "linux")))]
+#[cfg(not(any(windows, target_os = "linux", target_os = "macos")))]
 mod platform {
     use super::*;
     pub(super) fn pin_directory(_path: &Path) -> Result<(PathBuf, Vec<File>)> {

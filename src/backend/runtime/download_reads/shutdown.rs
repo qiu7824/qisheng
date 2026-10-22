@@ -473,7 +473,12 @@ mod tests {
         }
         fn finished(&self, id: &str, cursor: u64) {
             wait(|| !self.terminal_count(id, cursor).is_empty());
-            assert_eq!(self.terminal_count(id, cursor), [true]);
+            assert_eq!(
+                self.terminal_count(id, cursor),
+                [true],
+                "Operation {id}: {:?}",
+                self.backend().events_after(cursor).unwrap()
+            );
         }
         fn tasks(&self) -> Vec<crate::download::task_model::DownloadTaskView> {
             match self.backend().query(BackendQuery::DownloadTasks).unwrap() {
@@ -925,9 +930,39 @@ lx.send('inited',{{sources:{{kw:{{type:'music',actions:['musicUrl'],qualitys:['f
         drop(objects);
         assert!(!case.backend().retirement_state().runtime_retired);
         let moved = output.with_extension("unexpected-moved");
-        let denied = std::fs::rename(&output, &moved)
-            .expect_err("Retained native read/original must pin the published object");
-        assert_eq!(denied.raw_os_error(), Some(32));
+        #[cfg(windows)]
+        {
+            let denied = std::fs::rename(&output, &moved)
+                .expect_err("Retained native read/original must pin the published object");
+            assert_eq!(denied.raw_os_error(), Some(32));
+        }
+        #[cfg(unix)]
+        {
+            std::fs::rename(&output, &moved).unwrap();
+            let retained = crate::download::retained_read_task_objects_after_join(
+                &profile_id,
+                &task,
+                &[case.published_nonce(&task)],
+            )
+            .unwrap();
+            assert_eq!(retained.len(), 1);
+            assert_eq!(
+                retained[0].native_file().unwrap().metadata().unwrap().len(),
+                proof.bytes
+            );
+            assert!(
+                retained[0]
+                    .verify_published_audio(
+                        &proof,
+                        "flac",
+                        &crate::download::DownloadCancel::default()
+                    )
+                    .is_err(),
+                "A moved Unix file must not retain authority for its old pathname"
+            );
+            assert_eq!(std::fs::read(&moved).unwrap(), body);
+            std::fs::rename(&moved, &output).unwrap();
+        }
         assert!(!moved.exists());
         assert_eq!(std::fs::read(&output).unwrap(), body);
         hooks.close.release();
