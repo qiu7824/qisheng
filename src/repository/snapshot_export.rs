@@ -1522,6 +1522,7 @@ impl Repository {
             owner.recovery_registered = true;
             owner.fact(SnapshotPhase::Created,&serde_json::to_vec(&serde_json::json!({"request":owner.request,
                 "request_digest":locator.request_digest,"selected_root":owner.selected.identity()}))?,&context.inner)?;
+            #[cfg(not(unix))]
             let anchors = {
                 let connection = self
                     .connection
@@ -1562,8 +1563,19 @@ impl Repository {
                 let shm = SourceFileProof::pin_checked_sidecar(&main, &shm_name)?;
                 SourceAnchors { main, wal, shm }
             };
+            #[cfg(not(unix))]
             let mut source = SourceSqlite::open(anchors, context.inner.clone())
                 .context("Snapshot source reader opening failed")?;
+            #[cfg(unix)]
+            let mut source = {
+                let connection = self
+                    .connection
+                    .lock()
+                    .map_err(|_| anyhow::anyhow!("Repository lock poisoned"))?;
+                schema::validate_current(&connection)?;
+                SourceSqlite::open_unix(&connection, &self.path, context.inner.clone())
+                    .context("Snapshot native Unix reader opening failed")?
+            };
             source
                 .connection()?
                 .execute_batch("BEGIN DEFERRED")

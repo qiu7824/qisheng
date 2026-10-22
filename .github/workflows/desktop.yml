@@ -119,15 +119,27 @@ jobs:
       - name: Formatting
         run: cargo fmt --all -- --check
 
+      - name: Restore compatible native build cache
+        id: native-cache
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: ${{ runner.temp }}/qisheng-target
+          key: qisheng-native-${{ matrix.target }}-rust-1.99.0-${{ hashFiles('Cargo.lock', '.cargo/config.toml') }}
+
       - name: Native compilation of every test target
         run: |
           set -o pipefail
           cargo check --locked --all-targets 2>&1 | tee "$QISHENG_CI_ROOT/evidence/check.log"
 
-      - name: Unit and integration tests
+      - name: Core library tests
         run: |
           set -o pipefail
-          cargo test --locked --all-targets -- --test-threads=1 2>&1 | tee "$QISHENG_CI_ROOT/evidence/tests.log"
+          cargo test --locked --lib -- --test-threads=1 2>&1 | tee "$QISHENG_CI_ROOT/evidence/tests-core.log"
+
+      - name: Application and integration tests
+        run: |
+          set -o pipefail
+          cargo test --locked --bins --test '*' -- --test-threads=1 2>&1 | tee "$QISHENG_CI_ROOT/evidence/tests-applications.log"
 
       - name: Build native window smoke executable
         run: |
@@ -245,3 +257,24 @@ jobs:
           path: ${{ runner.temp }}/qisheng-ci/evidence/*
           if-no-files-found: warn
           retention-days: 7
+
+      - name: Measure reusable native cache
+        if: always() && steps.prepare.outcome == 'success' && steps.native-cache.outputs.cache-hit != 'true'
+        id: cache-size
+        run: |
+          python - <<'PY'
+          import os
+          from pathlib import Path
+          root = Path(os.environ['CARGO_TARGET_DIR'])
+          total = sum(path.stat().st_size for path in root.rglob('*') if path.is_file() and not path.is_symlink()) if root.exists() else 0
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
+              output.write('save=' + str(0 < total <= 8 * 1024**3).lower() + '\n')
+          print('Native cache logical bytes:', total)
+          PY
+
+      - name: Save compatible native cache
+        if: always() && steps.cache-size.outputs.save == 'true'
+        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: ${{ runner.temp }}/qisheng-target
+          key: ${{ steps.native-cache.outputs.cache-primary-key }}

@@ -863,8 +863,13 @@ unsafe extern "C" fn owned_full_path(
 /// implementation and read endmark, while proving every returned native file.
 pub(crate) struct SourceSqlite {
     connection: Option<Connection>,
-    registration: SourceRegistration,
+    registration: Option<SourceRegistration>,
+    #[cfg(unix)]
+    unix: Option<unix_source::UnixSource>,
 }
+#[cfg(unix)]
+#[path = "snapshot_unix_source.rs"]
+mod unix_source;
 pub(crate) struct SourceAnchors {
     pub main: SourceFileProof,
     pub wal: SourceFileProof,
@@ -925,7 +930,22 @@ impl SourceSqlite {
             .map_err(|error| registration.state.diagnostic_error(error))?;
         Ok(Self {
             connection: Some(connection),
-            registration,
+            registration: Some(registration),
+            #[cfg(unix)]
+            unix: None,
+        })
+    }
+    #[cfg(unix)]
+    pub(crate) fn open_unix(
+        original: &Connection,
+        path: &std::path::Path,
+        context: SnapshotContext,
+    ) -> Result<Self> {
+        let (connection, unix) = unix_source::UnixSource::open(original, path, context)?;
+        Ok(Self {
+            connection: Some(connection),
+            registration: None,
+            unix: Some(unix),
         })
     }
     pub(crate) fn connection(&self) -> Result<&Connection> {
@@ -934,10 +954,19 @@ impl SourceSqlite {
             .context("Snapshot read connection is closed")
     }
     pub(crate) fn check(&self) -> Result<()> {
-        self.registration.state.check()
+        #[cfg(unix)]
+        if let Some(source) = &self.unix {
+            return source.check(self.connection()?);
+        }
+        self.registration
+            .as_ref()
+            .context("Snapshot source registration is absent")?
+            .state
+            .check()
     }
     pub(crate) fn take_last_error(&self) -> Option<String> {
         self.registration
+            .as_ref()?
             .state
             .last_error
             .lock()
