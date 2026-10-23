@@ -1520,11 +1520,10 @@ impl PublishedAudioOwner {
                     &self.grant.path().join(&self.proof.basename)
                 )
                 && selection.expected_identity
-                    == crate::domain::library::FileIdentity {
-                        kind: "windows_file_id".into(),
-                        volume: format!("{:016x}", self.proof.identity.device),
-                        file_id: self.proof.identity.object.clone()
-                    },
+                    == crate::domain::library::FileIdentity::from_native_parts(
+                        self.proof.identity.device,
+                        &self.proof.identity.object,
+                    )?,
             "Published writer selection differs from its actual owner"
         );
         let grant = self.grant.clone();
@@ -1862,10 +1861,6 @@ pub(crate) struct CleanupJournalFile {
 
 impl CleanupDirectory {
     pub(crate) fn open_profile(path: &Path) -> Result<Self> {
-        ensure!(
-            cfg!(windows),
-            "UnsupportedCapability: durable original cleanup requires Windows object-ID absence proofs"
-        );
         Ok(Self {
             grant: DestinationGrant::open_selected(path, 1)?,
         })
@@ -1896,7 +1891,7 @@ impl CleanupDirectory {
 
     pub(crate) fn journal_length(&self, name: &str) -> Result<u64> {
         self.verify()?;
-        #[cfg(windows)]
+        #[cfg(any(windows, unix))]
         {
             let file = platform::open_cleanup_journal(self.grant.parent(), name, false, false)?;
             ensure!(
@@ -1907,7 +1902,7 @@ impl CleanupDirectory {
             self.verify()?;
             Ok(length)
         }
-        #[cfg(not(windows))]
+        #[cfg(not(any(windows, unix)))]
         {
             let _ = name;
             bail!("UnsupportedCapability: durable cleanup journal is unavailable")
@@ -1921,7 +1916,7 @@ impl CleanupDirectory {
         writable: bool,
     ) -> Result<CleanupJournalFile> {
         self.verify()?;
-        #[cfg(windows)]
+        #[cfg(any(windows, unix))]
         {
             let file = platform::open_cleanup_journal(self.grant.parent(), name, create, writable)?;
             ensure!(
@@ -1938,7 +1933,7 @@ impl CleanupDirectory {
             journal.verify()?;
             Ok(journal)
         }
-        #[cfg(not(windows))]
+        #[cfg(not(any(windows, unix)))]
         {
             let _ = (name, create, writable);
             bail!("UnsupportedCapability: durable cleanup journal is unavailable")
@@ -1950,6 +1945,7 @@ impl CleanupJournalFile {
     pub(crate) fn recorded_prepare(
         &self,
         facts: &CleanupPreparedFacts,
+        disposition: Option<&CleanupDispositionFacts>,
         profile: &FileIdentity,
         journal: &FileIdentity,
     ) -> Result<NativePreparedAttestation> {
@@ -1961,6 +1957,7 @@ impl CleanupJournalFile {
         Ok(NativePreparedAttestation {
             facts: facts.clone(),
             live: false,
+            disposition: disposition.cloned(),
         })
     }
     pub(crate) fn identity(&self) -> &FileIdentity {
@@ -2047,6 +2044,9 @@ pub(crate) struct CleanupPreparedFacts {
 pub(crate) struct NativePreparedAttestation {
     facts: CleanupPreparedFacts,
     live: bool,
+    // A durable same-handle zero-link witness is required for Unix cold recovery.
+    // A missing pathname alone never establishes that its inode was unlinked.
+    disposition: Option<CleanupDispositionFacts>,
 }
 
 impl NativePreparedAttestation {
@@ -2170,9 +2170,14 @@ impl DestinationGrant {
                 filesystem: "NTFS".into(),
             })
         }
-        #[cfg(not(windows))]
+        #[cfg(unix)]
         {
-            bail!("UnsupportedCapability: native cleanup volume calibration is unavailable")
+            let volume_guid = platform::cleanup_volume_guid(self.parent())?;
+            self.verify()?;
+            Ok(NativeVolumeCalibration {
+                volume_guid,
+                filesystem: "POSIX-UNLINK".into(),
+            })
         }
     }
 
@@ -2186,9 +2191,8 @@ impl DestinationGrant {
         ensure!(
             attestation.facts.raw_record == *record
                 && calibration.volume_guid == attestation.facts.volume_guid
-                && calibration.filesystem == "NTFS"
-                && attestation.facts.filesystem == "NTFS",
-            "Cleanup absence has no native prepared ID and same-volume NTFS calibration"
+                && calibration.filesystem == attestation.facts.filesystem,
+            "Cleanup absence has no native prepared identity and same-volume calibration"
         );
         #[cfg(windows)]
         {
@@ -2203,9 +2207,28 @@ impl DestinationGrant {
                 volume_guid: calibration.volume_guid.clone(),
             })
         }
-        #[cfg(not(windows))]
+        #[cfg(unix)]
         {
-            bail!("UnsupportedCapability: calibrated cleanup absence is unavailable")
+            let disposition = attestation.disposition.as_ref().context(
+                "Unix cleanup has no durable zero-link witness; a missing or moved pathname is insufficient",
+            )?;
+            ensure!(
+                calibration.filesystem == "POSIX-UNLINK"
+                    && calibration.volume_guid == platform::cleanup_volume_guid(self.parent())?
+                    && disposition.record == *record
+                    && disposition.volume_guid == calibration.volume_guid
+                    && disposition.delete_pending
+                    && disposition.number_of_links == 0,
+                "Unix cleanup disposition differs from its original inode or mounted device"
+            );
+            // The journal is bound to its actual profile and file identities. Its
+            // fsynced zero-link witness survives a process crash; merely prepared
+            // metadata does not. Reused nonce names are never opened for deletion.
+            self.verify()?;
+            Ok(CleanupNativeAbsence {
+                record: record.clone(),
+                volume_guid: calibration.volume_guid.clone(),
+            })
         }
     }
     pub(crate) fn cleanup_scope(
@@ -2387,10 +2410,6 @@ impl CleanupOriginal {
         attestation: Option<&NativePreparedAttestation>,
         calibration: Option<&NativeVolumeCalibration>,
     ) -> Result<CleanupOriginalLookup> {
-        ensure!(
-            cfg!(windows),
-            "UnsupportedCapability: exclusive original cleanup reopening is unavailable"
-        );
         grant.verify()?;
         ensure!(
             record.destination_identity == *grant.identity()
@@ -2467,6 +2486,18 @@ impl CleanupOriginal {
                     .context("Foreign nonce occupant has no durable native prepared ID evidence")?,
                 calibration
                     .context("Foreign nonce occupant has no fresh actual-volume calibration")?,
+            )?;
+            return Ok(CleanupOriginalLookup::Absent(CleanupAbsentOriginal {
+                absence: Some(absence),
+                retained: file,
+            }));
+        }
+        #[cfg(unix)]
+        if file.inspect(platform::link_count)? == 0 {
+            let absence = grant.cleanup_attested_absence(
+                record,
+                attestation.context("Unlinked original has no durable preparation")?,
+                calibration.context("Unlinked original has no device calibration")?,
             )?;
             return Ok(CleanupOriginalLookup::Absent(CleanupAbsentOriginal {
                 absence: Some(absence),
@@ -2564,12 +2595,23 @@ impl CleanupOriginal {
                     final_output: final_guard.proof.clone(),
                 },
                 live: true,
+                disposition: None,
             })
         }
-        #[cfg(not(windows))]
+        #[cfg(unix)]
         {
-            let _ = raw_sha256;
-            bail!("UnsupportedCapability: native prepared cleanup attestation is unavailable")
+            Ok(NativePreparedAttestation {
+                facts: CleanupPreparedFacts {
+                    volume_guid: platform::cleanup_volume_guid(self.grant.parent())?,
+                    filesystem: "POSIX-UNLINK".into(),
+                    raw_record: self.record.clone(),
+                    raw_bytes,
+                    raw_sha256: raw_sha256.into(),
+                    final_output: final_guard.proof.clone(),
+                },
+                live: true,
+                disposition: None,
+            })
         }
     }
 
@@ -2632,9 +2674,21 @@ impl CleanupOriginal {
             self.disposition = Some(facts.clone());
             Ok(NativeDispositionWitness { facts })
         }
-        #[cfg(not(windows))]
+        #[cfg(unix)]
         {
-            bail!("UnsupportedCapability: native disposition witness is unavailable")
+            let links = part.file.inspect(platform::link_count)?;
+            ensure!(
+                links == 0 && part.file.inspect(platform::identity)? == self.record.identity,
+                "Original unlink has no same-descriptor zero-link inode witness"
+            );
+            let facts = CleanupDispositionFacts {
+                record: self.record.clone(),
+                volume_guid: attestation.facts.volume_guid.clone(),
+                delete_pending: true,
+                number_of_links: links,
+            };
+            self.disposition = Some(facts.clone());
+            Ok(NativeDispositionWitness { facts })
         }
     }
 
@@ -2660,9 +2714,11 @@ impl CleanupOriginal {
             self.part.is_none(),
             "Original must actually close before calibrated absence"
         );
+        let mut closed_attestation = attestation.clone();
+        closed_attestation.disposition = self.disposition.clone();
         let absence =
             self.grant
-                .cleanup_attested_absence(&self.record, attestation, calibration)?;
+                .cleanup_attested_absence(&self.record, &closed_attestation, calibration)?;
         if let Some(file) = self.kept_original.as_ref() {
             file.release_native_absence(&absence)?;
         }
@@ -3643,6 +3699,46 @@ mod platform {
             io::{AsRawFd, FromRawFd},
         },
     };
+    pub(super) fn cleanup_volume_guid(file: &File) -> Result<String> {
+        Ok(format!("posix-dev-{:016x}", file.metadata()?.dev()))
+    }
+    pub(super) fn open_cleanup_journal(
+        parent: &File,
+        name: &str,
+        create: bool,
+        writable: bool,
+    ) -> Result<File> {
+        validate_basename(name)?;
+        let name = CString::new(name)?;
+        let flags = libc::O_CLOEXEC
+            | libc::O_NOFOLLOW
+            | libc::O_NONBLOCK
+            | if writable {
+                libc::O_RDWR
+            } else {
+                libc::O_RDONLY
+            }
+            | if create {
+                libc::O_CREAT | libc::O_EXCL
+            } else {
+                0
+            };
+        let fd = unsafe { libc::openat(parent.as_raw_fd(), name.as_ptr(), flags, 0o600) };
+        if fd < 0 {
+            return Err(io::Error::last_os_error().into());
+        }
+        let file = unsafe { File::from_raw_fd(fd) };
+        validate(&file, false)?;
+        let metadata = file.metadata()?;
+        ensure!(
+            metadata.uid() == unsafe { libc::geteuid() } && metadata.mode() & 0o077 == 0,
+            "Cleanup journal must be private to the current account"
+        );
+        if create {
+            parent.sync_all()?;
+        }
+        Ok(file)
+    }
     pub(super) fn pin_directory(path: &Path) -> Result<(PathBuf, Vec<File>)> {
         let fd = unsafe {
             libc::open(

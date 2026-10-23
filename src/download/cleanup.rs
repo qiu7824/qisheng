@@ -62,13 +62,13 @@ impl CleanupIntent {
             "Cleanup final proof must name a different published object in its planned role"
         );
         ensure!(
-            self.allocation.record.identity.object.len() == 32
-                && self.final_output.identity.object.len() == 32
+            valid_native_identity(&self.allocation.record.identity)
+                && valid_native_identity(&self.final_output.identity)
                 && self.allocation.record.identity.device
                     == self.allocation.selected_root_identity.device
                 && self.final_output.identity.device
                     == self.allocation.selected_root_identity.device,
-            "Cleanup intent requires same-volume native 128-bit object identities"
+            "Cleanup intent requires same-volume native object identities"
         );
         Ok(())
     }
@@ -97,7 +97,7 @@ pub trait CleanupCoordinator {
 }
 
 /// Cannot be constructed or deserialized by a caller. It is sealed only after
-/// native close and a successful selected-volume lookup proving the old ID absent.
+/// native close and target-native removal evidence for the original object.
 pub struct NativeRemovedReceipt {
     intent: CleanupIntent,
     record: OwnedPartRecord,
@@ -500,6 +500,7 @@ impl JournalEntry {
             .context("Cleanup record has no native preparation evidence")?;
         self.file.recorded_prepare(
             evidence,
+            record.disposition_evidence.as_ref(),
             journal.state.directory.identity(),
             self.file.identity(),
         )
@@ -612,8 +613,7 @@ fn validate_record(record: &StoredRecord, previous: Option<&StoredRecord>) -> Re
                 && evidence.raw_bytes == record.intent.raw_bytes
                 && evidence.raw_sha256 == record.intent.raw_sha256
                 && evidence.final_output == record.intent.final_output
-                && evidence.filesystem == "NTFS"
-                && valid_volume_guid(&evidence.volume_guid),
+                && valid_volume_evidence(evidence),
             "Cleanup native preparation evidence differs from its exact original or final proof"
         );
         if let Some(disposition) = &record.disposition_evidence {
@@ -679,18 +679,56 @@ fn validate_record(record: &StoredRecord, previous: Option<&StoredRecord>) -> Re
             "Prepared cleanup journal cannot claim native removal"
         ),
         CleanupPhase::Removed | CleanupPhase::Acknowledged => {
+            #[cfg(unix)]
+            ensure!(
+                record.disposition_evidence.is_some(),
+                "Unix removal receipt requires a durable same-inode zero-link witness"
+            );
             let receipt = record
                 .receipt
                 .as_ref()
                 .context("Cleanup journal phase has no native removal receipt")?;
             ensure!(
                 receipt.record == record.intent.allocation.record
-                    && valid_volume_guid(&receipt.volume_guid),
+                    && if record.version == 1 {
+                        valid_volume_guid(&receipt.volume_guid)
+                    } else {
+                        record.prepared_evidence.as_ref().is_some_and(|evidence| {
+                            valid_volume_evidence(evidence)
+                                && receipt.volume_guid == evidence.volume_guid
+                        })
+                    },
                 "Cleanup journal removal receipt differs from its original native identity"
             );
         }
     }
     Ok(())
+}
+
+fn valid_native_identity(identity: &FileIdentity) -> bool {
+    #[cfg(windows)]
+    {
+        identity.object.len() == 32 && identity.object.bytes().all(|b| b.is_ascii_hexdigit())
+    }
+    #[cfg(unix)]
+    {
+        identity
+            .object
+            .parse::<u64>()
+            .is_ok_and(|inode| inode != 0 && inode.to_string() == identity.object)
+    }
+}
+fn valid_volume_evidence(evidence: &CleanupPreparedFacts) -> bool {
+    #[cfg(windows)]
+    {
+        evidence.filesystem == "NTFS" && valid_volume_guid(&evidence.volume_guid)
+    }
+    #[cfg(unix)]
+    {
+        evidence.filesystem == "POSIX-UNLINK"
+            && evidence.volume_guid
+                == format!("posix-dev-{:016x}", evidence.raw_record.identity.device)
+    }
 }
 
 fn valid_sha256(value: &str) -> bool {

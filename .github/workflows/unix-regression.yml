@@ -1,0 +1,64 @@
+name: Unix native backend regression
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: unix-regression-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  native:
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            target: x86_64-unknown-linux-gnu
+          - runner: macos-15
+            target: aarch64-apple-darwin
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 35
+    env:
+      CARGO_BUILD_JOBS: '2'
+      CARGO_INCREMENTAL: '0'
+      CARGO_PROFILE_DEV_DEBUG: '0'
+      CARGO_PROFILE_TEST_DEBUG: '0'
+      MACOSX_DEPLOYMENT_TARGET: '15.0'
+      RUST_BACKTRACE: '1'
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Native toolchain
+        run: |
+          rustup toolchain install 1.99.0 --profile minimal
+          rustup override set 1.99.0
+          echo "CARGO_TARGET_DIR=$RUNNER_TEMP/qisheng-target" >> "$GITHUB_ENV"
+          echo "TMPDIR=$RUNNER_TEMP/qisheng-test-temp" >> "$GITHUB_ENV"
+          mkdir -p "$RUNNER_TEMP/qisheng-test-temp" "$RUNNER_TEMP/evidence"
+      - name: Linux dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y build-essential pkg-config libasound2-dev libcairo2-dev libpango1.0-dev libfontconfig1-dev libxkbcommon-dev libwayland-dev libx11-dev libxext-dev libxrandr-dev libxi-dev libxcursor-dev libxfixes-dev libegl1-mesa-dev libgl1-mesa-dev
+      - uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830
+        with:
+          path: ${{ runner.temp }}/qisheng-target
+          key: qisheng-native-${{ matrix.target }}-rust-1.99.0-${{ hashFiles('Cargo.lock', '.cargo/config.toml') }}-${{ github.sha }}
+          restore-keys: |
+            qisheng-native-${{ matrix.target }}-rust-1.99.0-${{ hashFiles('Cargo.lock', '.cargo/config.toml') }}
+            qisheng-native-${{ matrix.target }}-rust-1.99.0-
+      - name: Build native process worker
+        run: cargo build --locked --profile test --bin lx-native-cli
+      - name: Native filesystem and playback regression
+        run: |
+          set -o pipefail
+          cargo test --locked --no-fail-fast --test download_cleanup --test backend_download_tasks --test library_scan --test repository_library_roots --test backend_playback_processing --test audio_cache_latency -- --test-threads=1 2>&1 | tee "$RUNNER_TEMP/evidence/tests.log"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: Unix-regression-${{ matrix.target }}-${{ github.sha }}
+          path: ${{ runner.temp }}/evidence/*
+          retention-days: 7
+          if-no-files-found: warn

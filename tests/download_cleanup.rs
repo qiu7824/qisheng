@@ -5,15 +5,7 @@
 )]
 mod native_producer_helpers;
 
-#[cfg(not(windows))]
-#[test]
-fn unsupported_native_cleanup_does_not_write_profile_journals() {
-    let profile = native_producer_helpers::fixture_directory().unwrap();
-    assert!(lx_gpui_player::download::cleanup::CleanupJournal::open(profile.path()).is_err());
-    assert_eq!(std::fs::read_dir(profile.path()).unwrap().count(), 0);
-}
-
-#[cfg(windows)]
+#[cfg(any(windows, unix))]
 #[allow(
     dead_code,
     reason = "Shared encoded fixtures expose other format constructors to sibling tests"
@@ -21,8 +13,8 @@ fn unsupported_native_cleanup_does_not_write_profile_journals() {
 #[path = "support/encoded_audio_fixture.rs"]
 mod encoded;
 
-#[cfg(windows)]
-mod windows {
+#[cfg(any(windows, unix))]
+mod native {
     use super::{encoded, native_producer_helpers};
     use anyhow::{Context, Result, ensure};
     use lx_gpui_player::{
@@ -45,10 +37,11 @@ mod windows {
         repository::{DownloadOwnedArtifact, Repository},
     };
     use sha2::{Digest, Sha256};
+    #[cfg(windows)]
+    use std::os::windows::{fs::OpenOptionsExt, io::AsRawHandle};
     use std::{
         fs::{self, File, OpenOptions},
         io::{Read, Write},
-        os::windows::{fs::OpenOptionsExt, io::AsRawHandle},
         path::{Path, PathBuf},
         sync::{
             Arc,
@@ -56,10 +49,12 @@ mod windows {
         },
         time::{Duration, Instant},
     };
+    #[cfg(windows)]
     use windows_sys::Win32::Storage::FileSystem::{
         FILE_ID_INFO, FILE_SHARE_READ, FileIdInfo, GetFileInformationByHandleEx,
     };
 
+    #[cfg(windows)]
     fn identity(path: &Path) -> FileIdentity {
         let file = File::open(path).unwrap();
         let mut info = FILE_ID_INFO::default();
@@ -82,6 +77,16 @@ mod windows {
                 .iter()
                 .map(|byte| format!("{byte:02x}"))
                 .collect(),
+        }
+    }
+
+    #[cfg(unix)]
+    fn identity(path: &Path) -> FileIdentity {
+        use std::os::unix::fs::MetadataExt;
+        let metadata = fs::metadata(path).unwrap();
+        FileIdentity {
+            device: metadata.dev(),
+            object: metadata.ino().to_string(),
         }
     }
 
@@ -463,7 +468,14 @@ mod windows {
             let record: serde_json::Value =
                 serde_json::from_slice(&bytes[offset + 36..offset + 36 + length]).unwrap();
             assert_eq!(record["version"], 2);
-            assert_eq!(record["prepared_evidence"]["filesystem"], "NTFS");
+            assert_eq!(
+                record["prepared_evidence"]["filesystem"],
+                if cfg!(windows) {
+                    "NTFS"
+                } else {
+                    "POSIX-UNLINK"
+                }
+            );
             phases.push(record["phase"].as_str().unwrap().to_owned());
             offset += 36 + length;
         }
@@ -486,8 +498,11 @@ mod windows {
         let mut owner = case.owner();
         assert!(owner.advance(&case.coordinator).is_err());
         assert_eq!(owner.phase(), Some(CleanupPhase::Prepared));
-        assert!(fs::rename(&case.raw_path, case.raw_path.with_extension("moved")).is_err());
-        assert!(fs::write(&case.final_path, b"foreign replacement").is_err());
+        #[cfg(windows)]
+        {
+            assert!(fs::rename(&case.raw_path, case.raw_path.with_extension("moved")).is_err());
+            assert!(fs::write(&case.final_path, b"foreign replacement").is_err());
+        }
         assert_eq!(case.row().phase, "verified");
         case.coordinator
             .stop_before_remove
@@ -542,7 +557,11 @@ mod windows {
             let mut owner = case.owner();
             let error = owner.advance(&case.coordinator).unwrap_err();
             assert!(
-                format!("{error:#}").contains("FileID still exists"),
+                format!("{error:#}").contains(if cfg!(windows) {
+                    "FileID still exists"
+                } else {
+                    "no durable zero-link witness"
+                }),
                 "{error:#}"
             );
             assert_eq!(owner.phase(), Some(CleanupPhase::Prepared));
@@ -552,6 +571,7 @@ mod windows {
         }
     }
 
+    #[cfg(windows)]
     #[test]
     fn prepared_gap_uses_actual_absent_fileid_and_keeps_a_foreign_reused_nonce_name() {
         let case = Case::new();
@@ -572,6 +592,37 @@ mod windows {
         assert_eq!(fs::read(&case.final_path).unwrap(), case.body);
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn missing_original_without_durable_unlink_witness_keeps_accounting_and_foreign_nonce() {
+        let case = Case::new();
+        case.prepared();
+        fs::remove_file(&case.raw_path).unwrap();
+        let foreign = b"independent replacement at the old nonce";
+        fs::write(&case.raw_path, foreign).unwrap();
+        let mut owner = case.owner();
+        assert!(owner.advance(&case.coordinator).is_err());
+        assert!(!owner.physical_removal_proven());
+        assert_eq!(owner.phase(), Some(CleanupPhase::Prepared));
+        assert_eq!(case.row().phase, "verified");
+        assert_eq!(fs::read(&case.raw_path).unwrap(), foreign);
+        assert_eq!(fs::read(&case.final_path).unwrap(), case.body);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn final_modified_after_preparation_preserves_the_original() {
+        let case = Case::new();
+        case.prepared();
+        fs::write(&case.final_path, b"changed final file").unwrap();
+        let mut owner = case.owner();
+        assert!(owner.advance(&case.coordinator).is_err());
+        assert!(!owner.physical_removal_proven());
+        assert_eq!(fs::read(&case.raw_path).unwrap(), case.body);
+        assert_eq!(fs::read(&case.final_path).unwrap(), b"changed final file");
+        assert_eq!(case.row().phase, "verified");
+    }
+
     #[test]
     fn unapproved_original_hardlink_is_retained_without_releasing_accounting() {
         let case = Case::new();
@@ -586,6 +637,7 @@ mod windows {
         assert_eq!(fs::read(&alias).unwrap(), case.body);
     }
 
+    #[cfg(windows)]
     #[test]
     fn occupied_original_reader_blocks_exclusive_recovery_and_retries_after_real_close() {
         let case = Case::new();
@@ -607,6 +659,7 @@ mod windows {
         assert!(!case.raw_path.exists());
     }
 
+    #[cfg(windows)]
     #[test]
     fn actual_readonly_original_delete_failure_keeps_prepared_ownership_until_retry() {
         let case = Case::new();
