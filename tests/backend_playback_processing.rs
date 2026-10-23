@@ -89,7 +89,9 @@ fn varispeed_doubles_frequency_and_independent_pitch_changes_frequency_without_d
 
 #[test]
 fn live_rate_mute_paused_pitch_seek_and_reset_preserve_media_and_apply_actual_new_pcm() {
-    let running = Running::new(48_000, 2, 12.0);
+    // This case exercises a sequence of live controls rather than EOF timing.
+    // Leave enough source media for every control acknowledgement at double speed.
+    let running = Running::new(48_000, 2, 20.0);
     let playing = running.play("live-processing-play");
     let epoch = cache_epoch(&running.backend);
     let baseline = acknowledged(&running.backend, PlaybackProcessingSettings::default());
