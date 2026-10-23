@@ -93,7 +93,7 @@ jobs:
         if: matrix.os == 'linux'
         run: |
           sudo apt-get update
-          sudo apt-get install --no-install-recommends -y build-essential pkg-config libasound2-dev libcairo2-dev libpango1.0-dev libfontconfig1-dev libxkbcommon-dev libwayland-dev libx11-dev libxext-dev libxrandr-dev libxi-dev libxcursor-dev libxfixes-dev libegl1-mesa-dev libgl1-mesa-dev fonts-noto-cjk xvfb xauth dbus-x11 zenity openbox
+          sudo apt-get install --no-install-recommends -y build-essential pkg-config libasound2-dev libcairo2-dev libpango1.0-dev libfontconfig1-dev libxkbcommon-dev libxkbcommon-x11-dev libwayland-dev libx11-dev libxext-dev libxrandr-dev libxi-dev libxcursor-dev libxfixes-dev libegl1-mesa-dev libgl1-mesa-dev fonts-noto-cjk xvfb xauth dbus-x11 zenity openbox
 
       - name: Rust toolchain and native target identity
         run: |
@@ -300,7 +300,7 @@ jobs:
               icons = deb / 'usr/share/icons/hicolor/scalable/apps'
               icons.mkdir(parents=True)
               shutil.copy2(source / 'assets/qisheng.svg', icons / 'qisheng.svg')
-              depends = 'libc6, libasound2t64, libcairo2, libpango-1.0-0, libpangocairo-1.0-0, libfontconfig1, libxkbcommon0, libwayland-client0, libx11-6, libxcursor1, libxi6, libxrandr2, libxfixes3, libxext6, libgl1, libegl1, fonts-noto-cjk, xdg-desktop-portal, xdg-desktop-portal-gtk | xdg-desktop-portal-kde, zenity'
+              depends = 'libc6, libasound2t64, libcairo2, libpango-1.0-0, libpangocairo-1.0-0, libfontconfig1, libxkbcommon0, libxkbcommon-x11-0, libwayland-client0, libx11-6, libxcursor1, libxi6, libxrandr2, libxfixes3, libxext6, libgl1, libegl1, fonts-noto-cjk, xdg-desktop-portal, xdg-desktop-portal-gtk | xdg-desktop-portal-kde, zenity'
               (deb / 'DEBIAN/control').write_text('Package: qisheng\nVersion: ' + version.replace('-', '~', 1) + '\nArchitecture: amd64\nMaintainer: Qisheng <30194382+qiu7824@users.noreply.github.com>\nSection: sound\nPriority: optional\nDepends: ' + depends + '\nDescription: Qisheng native desktop music player\n Native music library, playback and synchronized lyrics.\n', encoding='utf-8')
               debfile = packages / (name + '.deb')
               subprocess.run(['dpkg-deb', '--root-owner-group', '--build', str(deb), str(debfile)], check=True)

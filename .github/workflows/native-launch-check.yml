@@ -1,14 +1,21 @@
 name: Native desktop regression
 on:
   workflow_dispatch:
+    inputs:
+      platform:
+        description: Native desktop host
+        type: choice
+        options: [macos, linux]
+        default: macos
+        required: true
 permissions:
   contents: read
 concurrency:
-  group: native-launch-${{ github.ref }}
+  group: native-launch-${{ github.ref }}-${{ inputs.platform }}
   cancel-in-progress: false
 jobs:
-  macos-launch:
-    runs-on: macos-15
+  native-launch:
+    runs-on: ${{ inputs.platform == 'linux' && 'ubuntu-24.04' || 'macos-15' }}
     timeout-minutes: 20
     env:
       CARGO_BUILD_JOBS: '2'
@@ -18,6 +25,7 @@ jobs:
       MACOSX_DEPLOYMENT_TARGET: '15.0'
       QISHENG_BINARY_DIRECTORY: debug
       PYTHONUTF8: '1'
+      QISHENG_NATIVE_TARGET: ${{ inputs.platform == 'linux' && 'x86_64-unknown-linux-gnu' || 'aarch64-apple-darwin' }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
@@ -29,13 +37,18 @@ jobs:
           echo "CARGO_TARGET_DIR=$RUNNER_TEMP/qisheng-target" >> "$GITHUB_ENV"
           echo "QISHENG_CI_ROOT=$RUNNER_TEMP/qisheng-native-regression" >> "$GITHUB_ENV"
           mkdir -p "$RUNNER_TEMP/qisheng-native-regression/evidence" "$RUNNER_TEMP/qisheng-native-regression/temp"
+      - name: Linux native dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y build-essential pkg-config libasound2-dev libcairo2-dev libpango1.0-dev libfontconfig1-dev libxkbcommon-dev libxkbcommon-x11-dev libwayland-dev libx11-dev libxext-dev libxrandr-dev libxi-dev libxcursor-dev libxfixes-dev libegl1-mesa-dev libgl1-mesa-dev fonts-noto-cjk xvfb xauth dbus-x11 zenity openbox
       - uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830
         with:
           path: ${{ runner.temp }}/qisheng-target
-          key: qisheng-native-aarch64-apple-darwin-rust-1.99.0-${{ hashFiles('Cargo.lock', '.cargo/config.toml') }}-${{ github.sha }}
+          key: qisheng-native-${{ env.QISHENG_NATIVE_TARGET }}-rust-1.99.0-${{ hashFiles('Cargo.lock', '.cargo/config.toml') }}-${{ github.sha }}
           restore-keys: |
-            qisheng-native-aarch64-apple-darwin-rust-1.99.0-${{ hashFiles('Cargo.lock', '.cargo/config.toml') }}
-            qisheng-native-aarch64-apple-darwin-rust-1.99.0-
+            qisheng-native-${{ env.QISHENG_NATIVE_TARGET }}-rust-1.99.0-${{ hashFiles('Cargo.lock', '.cargo/config.toml') }}
+            qisheng-native-${{ env.QISHENG_NATIVE_TARGET }}-rust-1.99.0-
       - name: Native per-profile IPC
         id: ipc
         run: |
@@ -57,7 +70,7 @@ jobs:
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
         with:
-          name: Native-launch-${{ github.sha }}
+          name: Native-launch-${{ inputs.platform }}-${{ github.sha }}
           path: |
             ${{ runner.temp }}/native-launch.log
             ${{ runner.temp }}/qisheng-native-regression/evidence/*
