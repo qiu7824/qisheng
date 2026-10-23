@@ -177,7 +177,7 @@ fn clear_waits_honestly_but_ram_read_lease_pin_and_drop_remain_fast_and_foreign_
     );
     assert!(
         waited < Duration::from_millis(200),
-        "clear barrier ignored its deadline"
+        "clear barrier ignored its 100 ms deadline: elapsed={waited:?}"
     );
     let (_, dropped) = measured(&mut lock, move || drop(lease));
     assert!(dropped < Duration::from_millis(100));

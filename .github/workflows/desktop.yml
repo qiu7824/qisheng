@@ -246,6 +246,12 @@ jobs:
           for document in ['LICENSE', 'NOTICE']:
               shutil.copy2(source / document, staging / document)
           shutil.copytree(source / 'licenses', staging / 'licenses')
+          with zipfile.ZipFile(staging / 'licenses/zsui-source.zip', 'w', zipfile.ZIP_DEFLATED) as archive:
+              framework = source / 'vendor/zsui'
+              for path in sorted(framework.rglob('*')):
+                  assert not path.is_symlink(), 'Framework source contains an unexpected link'
+                  if path.is_file() and not any(part in ['target', 'node_modules', '.git', '__pycache__'] for part in path.relative_to(framework).parts):
+                      archive.write(path, path.relative_to(framework.parent).as_posix())
           if system == 'Windows':
               vswhere = Path(os.environ['ProgramFiles(x86)']) / 'Microsoft Visual Studio/Installer/vswhere.exe'
               installation = subprocess.check_output([str(vswhere), '-latest', '-products', '*', '-requires', 'Microsoft.VisualStudio.Component.VC.Tools.x86.x64', '-property', 'installationPath'], text=True).strip()

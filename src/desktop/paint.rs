@@ -386,10 +386,13 @@ impl P {
     /// One icon-font glyph centered in the box.
     #[allow(clippy::too_many_arguments)]
     pub fn glyph(&mut self, ch: char, x: f32, y: f32, w: f32, h: f32, size: f32, color: Color) {
+        if crate::icons::draw(&mut self.scene, ch, x, y, w, h, size, color) {
+            return;
+        }
         // A box larger than the em square, so glyphs that overhang it (the
         // filled heart, for one) are not clipped by their own text run.
         let side = size * 1.6;
-        let mut style = SemanticTextStyle::for_role(TextRole::Icon);
+        let mut style = SemanticTextStyle::for_role(TextRole::Body);
         style.color = self.pal.role_for(color);
         style.horizontal_align = HorizontalAlign::Center;
         style.vertical_align = VerticalAlign::Center;

@@ -38,6 +38,7 @@ impl ScanRequest {
         }
     }
     fn validate(&self) -> Result<()> {
+        ensure!(self.root.to_str().is_some(), ScanError::UnsupportedPath);
         ensure!(
             self.root.is_absolute(),
             "Library root must be an absolute path"

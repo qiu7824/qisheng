@@ -1,5 +1,6 @@
 """Exercise native close/relaunch, Unicode import and target-native panels."""
 import json, os, platform, sqlite3, subprocess, sys, time, wave
+from png_probe import opaque_color_count
 if platform.system() == 'Linux' and not os.environ.get('QISHENG_SMOKE_DISPLAY_READY'):
     environment = dict(os.environ, QISHENG_SMOKE_DISPLAY_READY='1')
     raise SystemExit(subprocess.run(['dbus-run-session', '--', 'xvfb-run', '-a', '-s', '-screen 0 1440x1000x24', sys.executable, __file__], env=environment, timeout=130).returncode)
@@ -65,4 +66,5 @@ assert count == 1, ('Forwarded file was not imported', count)
 if platform.system() == 'Darwin':
     for name in ['notepad-owner-open-panel.png', 'folder-owner-panel.png']:
         assert (evidence / name).is_file() and (evidence / name).stat().st_size > 1024, ('Native picker screenshot missing', name)
+        assert opaque_color_count(evidence / name) >= 32, ('Native picker content is blank', name)
 (evidence / 'native-smoke-result.json').write_text(json.dumps(dict(window='passed', backgroundClose='passed', secondLaunch='passed', unicodeFileImport='passed', importedAssets=count), indent=2), encoding='utf-8')

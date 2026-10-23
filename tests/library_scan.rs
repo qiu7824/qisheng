@@ -122,12 +122,18 @@ fn non_utf8_audio_paths_are_rejected_before_a_json_success_report() {
     use std::os::unix::ffi::OsStringExt;
     let directory = root();
     let name = std::ffi::OsString::from_vec(b"non-utf8-\xff.wav".to_vec());
-    fs::write(directory.path().join(name), [0]).unwrap();
-    let error = discover(
-        &ScanRequest::new(directory.path().to_path_buf()),
-        &context(),
-    )
-    .unwrap_err();
+    let invalid_path = directory.path().join(name);
+    let selected = match fs::write(&invalid_path, [0]) {
+        Ok(()) => directory.path().to_path_buf(),
+        #[cfg(target_os = "macos")]
+        Err(error) if error.raw_os_error() == Some(libc::EILSEQ) => {
+            // APFS rejects the directory entry itself; the public request must
+            // still reject this non-Unicode path before attempting filesystem I/O.
+            invalid_path
+        }
+        Err(error) => panic!("Cannot create the invalid-name fixture: {error}"),
+    };
+    let error = discover(&ScanRequest::new(selected), &context()).unwrap_err();
     assert_eq!(
         error.downcast_ref::<ScanError>(),
         Some(&ScanError::UnsupportedPath)

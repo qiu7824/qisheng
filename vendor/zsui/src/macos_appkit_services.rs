@@ -756,7 +756,7 @@ impl AppKitFilePanelKind {
 
 pub fn macos_appkit_open_file_dialog(spec: &FileDialogSpec) -> ZsuiResult<Option<Vec<PathBuf>>> {
     if MainThreadMarker::new().is_none() {
-        return appkit_dispatch_dialog(|| macos_appkit_open_file_dialog(spec));
+        return appkit_open_panel_from_worker(spec.clone(), false);
     }
     let mtm = appkit_main_thread_marker("NSOpenPanel")?;
     let owner = appkit_active_file_dialog_owner(mtm);
@@ -792,7 +792,7 @@ pub fn macos_appkit_open_file_dialog(spec: &FileDialogSpec) -> ZsuiResult<Option
 
 pub fn macos_appkit_save_file_dialog(spec: &SaveFileDialogSpec) -> ZsuiResult<Option<PathBuf>> {
     if MainThreadMarker::new().is_none() {
-        return appkit_dispatch_dialog(|| macos_appkit_save_file_dialog(spec));
+        return appkit_save_panel_from_worker(spec.clone());
     }
     let mtm = appkit_main_thread_marker("NSSavePanel")?;
     let owner = appkit_active_file_dialog_owner(mtm);
@@ -819,7 +819,8 @@ pub fn macos_appkit_save_file_dialog(spec: &SaveFileDialogSpec) -> ZsuiResult<Op
 
 pub fn macos_appkit_pick_folder(spec: &FileDialogSpec) -> ZsuiResult<Option<PathBuf>> {
     if MainThreadMarker::new().is_none() {
-        return appkit_dispatch_dialog(|| macos_appkit_pick_folder(spec));
+        return appkit_open_panel_from_worker(spec.clone(), true)
+            .map(|paths| paths.and_then(|paths| paths.into_iter().next()));
     }
     let mtm = appkit_main_thread_marker("NSOpenPanel folder")?;
     let owner = appkit_active_file_dialog_owner(mtm);
@@ -868,18 +869,167 @@ impl Drop for AppKitDialogDispatch {
     }
 }
 
-// Worker callers wait outside the retained View lock; AppKit owns all panels
-// on its main thread. Without a running host, fail instead of waiting forever.
-fn appkit_dispatch_dialog<T: Send>(action: impl FnOnce() -> ZsuiResult<T> + Send) -> ZsuiResult<T> {
+// The worker waits while the main queue remains free for the panel's remote
+// view service and its completion callback.
+fn appkit_dispatch_panel<T: Send + 'static>(
+    start: impl FnOnce(std::sync::mpsc::Sender<ZsuiResult<T>>) -> ZsuiResult<()> + Send + 'static,
+) -> ZsuiResult<T> {
     if !APPKIT_DIALOG_DISPATCH_ACTIVE.load(Ordering::Acquire) {
         return Err(ZsuiError::host(
             "macos_file_dialog",
             "The AppKit event loop is not running",
         ));
     }
-    let mut result = None;
-    dispatch2::DispatchQueue::main().exec_sync(|| result = Some(action()));
-    result.expect("The main queue executes synchronous dialog work before returning")
+    let (sender, receiver) = std::sync::mpsc::channel();
+    dispatch2::DispatchQueue::main().exec_async(move || {
+        if let Err(error) = start(sender.clone()) {
+            let _ = sender.send(Err(error));
+        }
+    });
+    receiver.recv().map_err(|_| {
+        ZsuiError::host(
+            "macos_file_dialog",
+            "The file panel closed without a response",
+        )
+    })?
+}
+
+fn appkit_open_panel_from_worker(
+    spec: FileDialogSpec,
+    directory: bool,
+) -> ZsuiResult<Option<Vec<PathBuf>>> {
+    appkit_dispatch_panel(move |sender| {
+        let mtm = appkit_main_thread_marker("NSOpenPanel")?;
+        let owner = appkit_active_file_dialog_owner(mtm);
+        let panel = NSOpenPanel::openPanel(mtm);
+        appkit_configure_open_panel(&panel, &spec);
+        if directory {
+            panel.setCanChooseFiles(false);
+            panel.setCanChooseDirectories(true);
+            panel.setAllowsMultipleSelection(false);
+        }
+        let selected = panel.clone();
+        let completion = RcBlock::new(move |response: objc2_app_kit::NSModalResponse| {
+            let result = (|| -> ZsuiResult<Option<Vec<PathBuf>>> {
+                if response == NSModalResponseCancel {
+                    return Ok(None);
+                }
+                if response != NSModalResponseOK {
+                    return Err(ZsuiError::host(
+                        "macos_file_dialog",
+                        "NSOpenPanel could not display or complete the selection",
+                    ));
+                }
+                let urls = selected.URLs();
+                let mut paths = Vec::with_capacity(urls.len());
+                for index in 0..urls.len() {
+                    let url = unsafe { urls.objectAtIndex_unchecked(index) };
+                    let path = url.to_file_path().ok_or_else(|| {
+                        ZsuiError::host("macos_file_dialog", "NSOpenPanel returned a non-file URL")
+                    })?;
+                    if directory && !path.is_dir() {
+                        return Err(ZsuiError::host(
+                            "macos_pick_folder",
+                            "The selected path is not a directory",
+                        ));
+                    }
+                    paths.push(path);
+                }
+                if paths.is_empty() {
+                    return Err(ZsuiError::host(
+                        "macos_file_dialog",
+                        "NSOpenPanel accepted without a selected path",
+                    ));
+                }
+                Ok(Some(paths))
+            })();
+            let _ = sender.send(result);
+        });
+        if let Some(owner) = owner.as_deref() {
+            panel.beginSheetModalForWindow_completionHandler(owner, &completion);
+        } else {
+            panel.beginWithCompletionHandler(&completion);
+        }
+        #[cfg(feature = "native-smoke")]
+        appkit_schedule_async_panel_proof(
+            &panel,
+            owner.as_deref(),
+            if directory {
+                AppKitFilePanelKind::Folder
+            } else {
+                AppKitFilePanelKind::Open
+            },
+        )?;
+        Ok(())
+    })
+}
+
+fn appkit_save_panel_from_worker(spec: SaveFileDialogSpec) -> ZsuiResult<Option<PathBuf>> {
+    appkit_dispatch_panel(move |sender| {
+        let mtm = appkit_main_thread_marker("NSSavePanel")?;
+        let owner = appkit_active_file_dialog_owner(mtm);
+        let panel = NSSavePanel::savePanel(mtm);
+        appkit_configure_save_panel(&panel, &spec);
+        let selected = panel.clone();
+        let completion = RcBlock::new(move |response: objc2_app_kit::NSModalResponse| {
+            let result = if response == NSModalResponseCancel {
+                Ok(None)
+            } else if response != NSModalResponseOK {
+                Err(ZsuiError::host(
+                    "macos_save_file_dialog",
+                    "NSSavePanel could not display or complete the selection",
+                ))
+            } else {
+                selected
+                    .URL()
+                    .and_then(|url| url.to_file_path())
+                    .map(Some)
+                    .ok_or_else(|| {
+                        ZsuiError::host(
+                            "macos_save_file_dialog",
+                            "NSSavePanel accepted without a local path",
+                        )
+                    })
+            };
+            let _ = sender.send(result);
+        });
+        if let Some(owner) = owner.as_deref() {
+            panel.beginSheetModalForWindow_completionHandler(owner, &completion);
+        } else {
+            panel.beginWithCompletionHandler(&completion);
+        }
+        #[cfg(feature = "native-smoke")]
+        appkit_schedule_async_panel_proof(&panel, owner.as_deref(), AppKitFilePanelKind::Save)?;
+        Ok(())
+    })
+}
+
+#[cfg(feature = "native-smoke")]
+fn appkit_schedule_async_panel_proof(
+    panel: &NSSavePanel,
+    owner: Option<&NSWindow>,
+    kind: AppKitFilePanelKind,
+) -> ZsuiResult<()> {
+    let Some(screenshot) = appkit_owner_file_panel_proof_path(kind)? else {
+        return Ok(());
+    };
+    let panel = panel.retain();
+    let owner = owner.map(|window| window.retain());
+    let capture_and_cancel = RcBlock::new(move |_timer: NonNull<NSTimer>| {
+        if let Err(error) = appkit_capture_file_panel_compositor_png(&panel, &screenshot) {
+            let _ = std::fs::write(screenshot.with_extension("error.txt"), error);
+        }
+        if let Some(owner) = owner.as_deref() {
+            owner.endSheet_returnCode(&panel, NSModalResponseCancel);
+        } else {
+            unsafe { panel.cancel(None) };
+        }
+        panel.orderOut(None);
+    });
+    let timer =
+        unsafe { NSTimer::timerWithTimeInterval_repeats_block(1.0, false, &capture_and_cancel) };
+    unsafe { NSRunLoop::mainRunLoop().addTimer_forMode(&timer, NSDefaultRunLoopMode) };
+    Ok(())
 }
 
 fn appkit_configure_open_panel(panel: &NSOpenPanel, spec: &FileDialogSpec) {

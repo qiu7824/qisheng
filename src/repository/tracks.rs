@@ -257,7 +257,12 @@ pub fn local_track_from_path(path: &Path) -> Result<(TrackRecord, LocalAsset)> {
             ensure!(metadata.is_file(), "Local music path is not a file");
             Some(metadata)
         }
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
+        Err(error)
+            if error.kind() == std::io::ErrorKind::NotFound
+                || exceeds_native_path_limit(&error) =>
+        {
+            None
+        }
         Err(error) => return Err(error).context("Cannot inspect authorized local music file"),
     };
     let normalized = if metadata.is_some() {
@@ -301,6 +306,25 @@ pub fn local_track_from_path(path: &Path) -> Result<(TrackRecord, LocalAsset)> {
         wire: None,
     };
     Ok((track, asset))
+}
+
+// A stored path from another host can exceed this host's native path limit.
+// Preserve its identity as unavailable without granting access to any file.
+fn exceeds_native_path_limit(error: &std::io::Error) -> bool {
+    #[cfg(unix)]
+    {
+        error.raw_os_error() == Some(libc::ENAMETOOLONG)
+    }
+    #[cfg(windows)]
+    {
+        error.raw_os_error()
+            == Some(windows_sys::Win32::Foundation::ERROR_FILENAME_EXCED_RANGE as i32)
+    }
+    #[cfg(not(any(unix, windows)))]
+    {
+        let _ = error;
+        false
+    }
 }
 
 fn lexical_normalize(path: &Path) -> Result<PathBuf> {

@@ -11,6 +11,7 @@ mod art;
 mod art_cache;
 mod bridge;
 mod fmt;
+mod icons;
 mod instance;
 mod paint;
 mod pickers;
