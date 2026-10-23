@@ -5,7 +5,7 @@ on:
       platform:
         description: Native desktop host
         type: choice
-        options: [macos, linux]
+        options: [macos, linux, windows]
         default: macos
         required: true
 permissions:
@@ -15,8 +15,11 @@ concurrency:
   cancel-in-progress: false
 jobs:
   native-launch:
-    runs-on: ${{ inputs.platform == 'linux' && 'ubuntu-24.04' || 'macos-15' }}
-    timeout-minutes: 20
+    runs-on: ${{ inputs.platform == 'windows' && 'windows-2025' || (inputs.platform == 'linux' && 'ubuntu-24.04' || 'macos-15') }}
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: bash
     env:
       CARGO_BUILD_JOBS: '2'
       CARGO_INCREMENTAL: '0'
@@ -25,11 +28,14 @@ jobs:
       MACOSX_DEPLOYMENT_TARGET: '15.0'
       QISHENG_BINARY_DIRECTORY: debug
       PYTHONUTF8: '1'
-      QISHENG_NATIVE_TARGET: ${{ inputs.platform == 'linux' && 'x86_64-unknown-linux-gnu' || 'aarch64-apple-darwin' }}
+      QISHENG_NATIVE_TARGET: ${{ inputs.platform == 'windows' && 'x86_64-pc-windows-msvc' || (inputs.platform == 'linux' && 'x86_64-unknown-linux-gnu' || 'aarch64-apple-darwin') }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.13'
       - name: Prepare native toolchain
         run: |
           rustup toolchain install 1.99.0 --profile minimal
@@ -57,6 +63,7 @@ jobs:
       - name: Restored playback preferences
         run: |
           set -o pipefail
+          cargo build --locked --profile test --bin lx-native-cli
           cargo test --locked --no-fail-fast --test backend_backup --test backend_native_restore -- --test-threads=1 2>&1 | tee "$QISHENG_CI_ROOT/evidence/restore-tests.log"
       - name: Build native interaction executable
         id: interaction_build
@@ -66,7 +73,7 @@ jobs:
           cargo build --locked --profile test --features smoke --bin lx-native 2>&1 | tee "$QISHENG_CI_ROOT/evidence/interaction-build.log"
       - name: Native window lifecycle and file panels
         if: ${{ !cancelled() && steps.interaction_build.outcome == 'success' }}
-        run: python3 .github/scripts/native_smoke.py
+        run: python .github/scripts/native_smoke.py
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
         with:

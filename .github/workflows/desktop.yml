@@ -341,9 +341,13 @@ jobs:
                   with (root / 'evidence' / 'production-window.log').open('wb') as log:
                       process = subprocess.Popen(command, stdout=log, stderr=subprocess.STDOUT, start_new_session=(system != 'Windows'))
                       try:
+                          startup = time.monotonic()
+                          while not (profile / 'native-library.sqlite3').is_file():
+                              assert process.poll() is None, 'Packaged production frontend exited during initialization'
+                              assert time.monotonic() - startup < 30, 'Packaged frontend did not initialize its isolated profile'
+                              time.sleep(0.05)
                           time.sleep(3)
                           assert process.poll() is None, 'Packaged production frontend exited during startup'
-                          assert (profile / 'native-library.sqlite3').is_file(), 'Packaged frontend did not initialize its isolated profile'
                       finally:
                           if process.poll() is None:
                               if system == 'Windows':
