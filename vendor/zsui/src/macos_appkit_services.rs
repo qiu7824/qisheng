@@ -9,15 +9,15 @@ use std::{
 use std::{ffi::c_void, ptr::NonNull};
 
 use block2::RcBlock;
-use objc2::rc::Retained;
-#[cfg(feature = "native-smoke")]
-use objc2::runtime::AnyObject;
-use objc2::runtime::ProtocolObject;
 #[cfg(feature = "native-smoke")]
 use objc2::AnyThread;
 #[cfg(feature = "native-smoke")]
 use objc2::Message;
-use objc2::{define_class, msg_send, DefinedClass, MainThreadMarker, MainThreadOnly};
+use objc2::rc::Retained;
+#[cfg(feature = "native-smoke")]
+use objc2::runtime::AnyObject;
+use objc2::runtime::ProtocolObject;
+use objc2::{DefinedClass, MainThreadMarker, MainThreadOnly, define_class, msg_send};
 use objc2_app_kit::{
     NSAlert, NSAlertFirstButtonReturn, NSAlertSecondButtonReturn, NSAlertStyle,
     NSAlertThirdButtonReturn, NSApplication, NSApplicationActivationPolicy, NSApplicationDelegate,
@@ -39,7 +39,7 @@ use objc2_foundation::{
 #[cfg(feature = "native-smoke")]
 use objc2_foundation::{NSDefaultRunLoopMode, NSDictionary, NSTimer};
 
-use crate::native_clipboard::{native_clipboard_text_write, NativeClipboardTextWrite};
+use crate::native_clipboard::{NativeClipboardTextWrite, native_clipboard_text_write};
 use crate::native_file_dialog::{
     native_file_dialog_extensions, native_file_dialog_initial_directory,
     native_save_dialog_suggested_name,
@@ -1027,7 +1027,7 @@ fn appkit_schedule_async_panel_proof(
         panel.orderOut(None);
     });
     let timer =
-        unsafe { NSTimer::timerWithTimeInterval_repeats_block(1.0, false, &capture_and_cancel) };
+        unsafe { NSTimer::timerWithTimeInterval_repeats_block(3.0, false, &capture_and_cancel) };
     unsafe { NSRunLoop::mainRunLoop().addTimer_forMode(&timer, NSDefaultRunLoopMode) };
     Ok(())
 }
@@ -1195,6 +1195,11 @@ fn appkit_capture_file_panel_compositor_png(
     path: &Path,
 ) -> Result<(), String> {
     let window_number = panel.windowNumber();
+    eprintln!(
+        "native-panel: visible={}, frame={:?}, window={window_number}",
+        panel.isVisible(),
+        panel.frame()
+    );
     if window_number <= 0 {
         return Err("the AppKit file panel has no compositor window number".to_string());
     }
@@ -1210,7 +1215,21 @@ fn appkit_capture_file_panel_compositor_png(
         objc2_app_kit::NSBitmapImageRep::alloc(),
         &image,
     );
-    appkit_write_bitmap_png(&bitmap, path)
+    appkit_write_bitmap_png(&bitmap, path)?;
+    #[allow(deprecated)]
+    if let Some(desktop) = CGWindowListCreateImage(
+        unsafe { CGRectNull },
+        CGWindowListOption::OptionOnScreenOnly,
+        0,
+        CGWindowImageOption::BestResolution,
+    ) {
+        let desktop = objc2_app_kit::NSBitmapImageRep::initWithCGImage(
+            objc2_app_kit::NSBitmapImageRep::alloc(),
+            &desktop,
+        );
+        appkit_write_bitmap_png(&desktop, &path.with_extension("desktop.png"))?;
+    }
+    Ok(())
 }
 
 #[cfg(feature = "native-smoke")]

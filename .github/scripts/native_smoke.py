@@ -25,7 +25,7 @@ with (evidence / 'window-manager.log').open('wb') as manager_log, (evidence / 'n
             manager = subprocess.Popen(['openbox', '--sm-disable'], stdout=manager_log, stderr=subprocess.STDOUT)
             time.sleep(1)
             assert manager.poll() is None, 'Window manager did not start'
-        command = [str(executable), '--data-dir', str(profile), '--audio', 'memory', '--instance-smoke', '--smoke-close', '--smoke', str(screenshot), '--smoke-ms', '8000']
+        command = [str(executable), '--data-dir', str(profile), '--audio', 'memory', '--instance-smoke', '--smoke-close', '--smoke', str(screenshot), '--smoke-ms', '15000']
         if platform.system() == 'Darwin':
             os.environ['ZSUI_NATIVE_OWNER_FILE_DIALOG_PROOF_DIR'] = str(evidence)
             command.append('--smoke-pickers')
