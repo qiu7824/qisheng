@@ -20,6 +20,21 @@ const BLOCK_BYTES: usize = 256 * 1024;
 const RATE: u32 = 48_000;
 const SLOW_CHUNKS: usize = 84;
 
+fn wait_until(deadline: Instant) {
+    loop {
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        if remaining.is_zero() {
+            return;
+        }
+        let interval = if cfg!(target_os = "macos") {
+            remaining.min(Duration::from_millis(2))
+        } else {
+            remaining
+        };
+        thread::sleep(interval);
+    }
+}
+
 struct ContinuousRange {
     url: String,
     first_sent: Arc<AtomicBool>,
@@ -146,8 +161,11 @@ fn serve(
             }
         }
         let body = &wave[start..=end];
+        let schedule = Instant::now();
         for index in 0..SLOW_CHUNKS {
-            thread::sleep(Duration::from_millis(250));
+            // Preserve the intended 21-second continuous response without
+            // accumulating the host's timer-coalescing delay on every chunk.
+            wait_until(schedule + Duration::from_millis(250 * (index as u64 + 1)));
             if stop.load(Ordering::Acquire) {
                 return;
             }
@@ -313,7 +331,7 @@ fn continuous_second_block_outlasts_twenty_seconds_then_resumes_content_clock_an
             Instant::now() < stall_deadline,
             "second block did not finish its continuous body"
         );
-        thread::sleep(Duration::from_millis(50));
+        wait_until(Instant::now() + Duration::from_millis(50));
     }
     assert!(
         frozen_samples >= 200,

@@ -139,8 +139,19 @@ fn emit(context: &Context, event: Event, output: &mut Output) {
             full = true;
             continue;
         }
-        if !context.root.recursive && relative.components().count() != 1 {
-            continue;
+        if !context.root.recursive {
+            if relative.components().count() != 1 {
+                continue;
+            }
+            let current = std::fs::symlink_metadata(path).ok();
+            if current.as_ref().is_some_and(|metadata| metadata.is_dir())
+                || (is_directory == Some(true)
+                    && !current.as_ref().is_some_and(|metadata| metadata.is_file()))
+            {
+                // Changes to a child directory or its contents do not alter
+                // the direct-file scope of a nonrecursive music library.
+                continue;
+            }
         }
         full |= is_directory == Some(true);
         let kind = match event.kind {

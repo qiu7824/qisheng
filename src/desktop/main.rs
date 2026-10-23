@@ -163,6 +163,20 @@ fn run() -> anyhow::Result<()> {
                 .map(PathBuf::from)
                 .ok_or_else(|| anyhow::anyhow!("Missing smoke screenshot path"))?;
             Some(std::thread::spawn(move || -> anyhow::Result<()> {
+                wake.request_app_command(zsui::Command::custom("smoke.ready"))?;
+                let startup = std::time::Instant::now() + Duration::from_secs(30);
+                while !observed.is_smoke_ready() {
+                    anyhow::ensure!(
+                        std::time::Instant::now() < startup,
+                        "Native UI did not become ready"
+                    );
+                    std::thread::sleep(Duration::from_millis(20));
+                }
+                std::fs::write(
+                    screenshot.with_extension("ready.json"),
+                    b"{\"ui_ready\":true}",
+                )?;
+                eprintln!("native-window:ui-ready");
                 std::thread::sleep(Duration::from_secs(1));
                 wake.request_app_command(zsui::Command::custom("smoke.native-close"))?;
                 let deadline = std::time::Instant::now() + Duration::from_secs(5);
@@ -191,9 +205,10 @@ fn run() -> anyhow::Result<()> {
             let observed = inbox.clone();
             Some(std::thread::spawn(move || -> anyhow::Result<()> {
                 use zsui::{FileDialogService, FileDialogSpec, NativeFileDialogService};
-                std::thread::sleep(Duration::from_secs(3));
-                let deadline = std::time::Instant::now() + Duration::from_secs(3);
-                while instance_smoke && observed.handled_count() == 0 {
+                let deadline = std::time::Instant::now() + Duration::from_secs(30);
+                while !observed.is_smoke_ready()
+                    || (instance_smoke && observed.handled_count() == 0)
+                {
                     anyhow::ensure!(
                         std::time::Instant::now() < deadline,
                         "The UI did not process the forwarded launch before opening its panel"

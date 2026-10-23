@@ -20,6 +20,8 @@ struct Pending {
     handled: AtomicUsize,
     #[cfg(feature = "smoke")]
     background_closes: AtomicUsize,
+    #[cfg(feature = "smoke")]
+    native_ready: AtomicBool,
 }
 impl Inbox {
     pub fn take(&self) -> Option<Vec<PathBuf>> {
@@ -38,6 +40,14 @@ impl Inbox {
     #[cfg(feature = "smoke")]
     pub fn handled_count(&self) -> usize {
         self.0.handled.load(Ordering::Acquire)
+    }
+    #[cfg(feature = "smoke")]
+    pub fn acknowledge_smoke_ready(&self) {
+        self.0.native_ready.store(true, Ordering::Release);
+    }
+    #[cfg(feature = "smoke")]
+    pub fn is_smoke_ready(&self) -> bool {
+        self.0.native_ready.load(Ordering::Acquire)
     }
     #[cfg(feature = "smoke")]
     pub fn background_closed(&self) {

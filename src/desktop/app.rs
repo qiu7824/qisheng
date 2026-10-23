@@ -1159,6 +1159,8 @@ pub fn update(state: &mut State, msg: Msg, cx: &mut AppCx) {
 fn app_message(state: &mut State, id: &str, cx: &mut AppCx) {
     match id {
         #[cfg(feature = "smoke")]
+        "smoke.ready" => state.instance_inbox.acknowledge_smoke_ready(),
+        #[cfg(feature = "smoke")]
         "smoke.native-close" => cx.window_command(ZsWindowCommand::Close),
         CMD_CLOSE => {
             if state.ui.close_to_tray {

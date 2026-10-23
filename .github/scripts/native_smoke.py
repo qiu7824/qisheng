@@ -29,12 +29,21 @@ with (evidence / 'window-manager.log').open('wb') as manager_log, (evidence / 'n
         if platform.system() == 'Darwin':
             os.environ['ZSUI_NATIVE_OWNER_FILE_DIALOG_PROOF_DIR'] = str(evidence)
             command.append('--smoke-pickers')
+        launched_at = time.monotonic()
         primary = subprocess.Popen(command, stdout=log, stderr=subprocess.STDOUT)
-        deadline = time.monotonic() + 6
+        deadline = launched_at + 30
+        while not screenshot.with_suffix('.ready.json').is_file():
+            assert primary.poll() is None, 'Primary window exited during startup'
+            assert time.monotonic() < deadline, 'Native UI did not become ready'
+            time.sleep(0.05)
+        ready_at = time.monotonic()
+        deadline = ready_at + 6
         while not screenshot.with_suffix('.closed.json').is_file():
             assert primary.poll() is None, 'Primary window exited before launch forwarding'
             assert time.monotonic() < deadline, 'Native close was not acknowledged'
             time.sleep(0.05)
+        closed_at = time.monotonic()
+        (evidence / 'native-startup-timing.json').write_text(json.dumps(dict(startupSeconds=ready_at-launched_at, closeSeconds=closed_at-ready_at), indent=2), encoding='utf-8')
         forwarded = subprocess.run([str(executable), '--data-dir', str(profile), '--audio', 'memory', str(fixture)], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=20)
         (evidence / 'second-launch.log').write_bytes(forwarded.stdout)
         assert forwarded.returncode == 0, forwarded.stdout.decode(errors='replace')[-3000:]
