@@ -90,8 +90,30 @@ fn fresh_approval_epoch_and_stream_serial_reuse_same_exact_representation() {
         block_count,
         "aliases must not duplicate physical blocks"
     );
-    assert!(transport.cache().stats().disk_bytes <= options(&root).cache.disk_bytes);
-    assert_eq!(transport.cache().stats().disk_bytes, physical_bytes(&root));
+    // Reuse metadata is written by the cache owner after the HTTP worker joins.
+    // Compare its accounting with the filesystem only at a settled observation.
+    let deadline = Instant::now() + Duration::from_secs(5);
+    loop {
+        let before = transport.cache().stats();
+        assert!(before.disk_bytes <= options(&root).cache.disk_bytes);
+        if !before.io_active && before.pending_publish_bytes == 0 {
+            let physical = physical_bytes(&root);
+            let after = transport.cache().stats();
+            if !after.io_active
+                && after.pending_publish_bytes == 0
+                && before.disk_bytes == after.disk_bytes
+                && after.disk_bytes == physical
+            {
+                break;
+            }
+        }
+        assert!(
+            Instant::now() < deadline,
+            "Cache accounting did not settle: {:?}",
+            transport.cache().stats()
+        );
+        thread::sleep(Duration::from_millis(2));
+    }
     assert!(transport.shutdown(Duration::from_secs(8)));
 }
 

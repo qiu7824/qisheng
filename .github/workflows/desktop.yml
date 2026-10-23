@@ -6,7 +6,7 @@ on:
       platform:
         description: Native platforms to validate
         type: choice
-        options: [all, windows, macos, linux]
+        options: [all, windows, macos, macos-arm64, macos-x64, linux]
         default: all
         required: true
 
@@ -37,7 +37,7 @@ jobs:
               dict(os='linux', runner='ubuntu-24.04', target='x86_64-unknown-linux-gnu', label='Linux-x64', jobs=2),
           ]
           selected = os.environ['SELECTED_PLATFORM']
-          targets = [row for row in targets if selected == 'all' or row['os'] == selected]
+          targets = [row for row in targets if selected == 'all' or row['os'] == selected or row['label'].lower() == selected]
           assert targets, 'No supported target selected'
           with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
               output.write('targets=' + json.dumps({'include': targets}) + '\n')
