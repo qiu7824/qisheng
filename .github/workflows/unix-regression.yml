@@ -13,6 +13,8 @@ jobs:
       max-parallel: 2
       matrix:
         include:
+          - runner: macos-15-intel
+            target: x86_64-apple-darwin
           - runner: ubuntu-24.04
             target: x86_64-unknown-linux-gnu
           - runner: macos-15
@@ -50,8 +52,14 @@ jobs:
             qisheng-native-${{ matrix.target }}-rust-1.99.0-${{ hashFiles('Cargo.lock', '.cargo/config.toml') }}
             qisheng-native-${{ matrix.target }}-rust-1.99.0-
       - name: Build native process worker
+        id: worker
         run: cargo build --locked --profile test --bin lx-native-cli
+      - name: Concurrent PCM publication regression
+        run: |
+          set -o pipefail
+          cargo test --locked --lib audio::pcm::presentation_tests -- --test-threads=1 2>&1 | tee "$RUNNER_TEMP/evidence/pcm-publication.log"
       - name: Native filesystem and playback regression
+        if: ${{ !cancelled() && steps.worker.outcome == 'success' }}
         timeout-minutes: 25
         run: python3 .github/scripts/unix_regression.py
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02

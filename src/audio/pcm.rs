@@ -147,6 +147,8 @@ pub struct PcmSnapshot {
     /// Cumulative complete frames published into this actual PCM ring.
     pub produced_frames: u64,
     pub position_seconds: f64,
+    /// The clock was observed outside an in-flight presentation publication.
+    pub clock_stable: bool,
     pub consumed_frames: u64,
     pub underflow_frames: u64,
     pub queued_frames: usize,
@@ -204,6 +206,10 @@ struct Ring {
     consumer_ended: AtomicBool,
     #[cfg(test)]
     pause_after_publication: AtomicBool,
+    #[cfg(test)]
+    hold_publication: AtomicBool,
+    #[cfg(test)]
+    publication_held: AtomicBool,
     format: PcmFormat,
     allocated_bytes: usize,
 }
@@ -216,7 +222,7 @@ struct ClockBaseline {
 impl Ring {
     fn render_state(&self) -> (u64, bool) {
         let epoch = self.epoch.load(Ordering::Acquire);
-        let blocked = self.paused.load(Ordering::Acquire)
+        let blocked = self.paused.load(Ordering::SeqCst)
             || self.seeking.load(Ordering::Acquire)
             || matches!(self.terminal.load(Ordering::Acquire), ERROR | CANCELLED);
         (epoch, blocked)
@@ -253,6 +259,13 @@ impl Ring {
             self.clock_version.store(next, Ordering::SeqCst);
             return false;
         }
+        #[cfg(test)]
+        if self.hold_publication.load(Ordering::Acquire) {
+            self.publication_held.store(true, Ordering::Release);
+            while self.hold_publication.load(Ordering::Acquire) {
+                std::thread::yield_now();
+            }
+        }
         self.clock_stamp.store(stamp);
         self.clock_position.store(
             stamp.seconds(self.format.sample_rate).to_bits(),
@@ -271,7 +284,7 @@ impl Ring {
         true
     }
 
-    fn rendered_clock(&self) -> (f64, Option<ProcessingStamp>) {
+    fn rendered_clock(&self) -> (f64, Option<ProcessingStamp>, bool) {
         for _ in 0..4 {
             let tag = self.committed_clock.load(Ordering::SeqCst);
             let baseline = &self.baselines[(tag & 1) as usize];
@@ -288,9 +301,9 @@ impl Ring {
                 && tag == self.committed_clock.load(Ordering::SeqCst)
             {
                 return if valid && content_epoch == epoch {
-                    (stamp.seconds(self.format.sample_rate), Some(stamp))
+                    (stamp.seconds(self.format.sample_rate), Some(stamp), true)
                 } else {
-                    (target as f64 / self.format.sample_rate as f64, None)
+                    (target as f64 / self.format.sample_rate as f64, None, true)
                 };
             }
         }
@@ -307,7 +320,7 @@ impl Ring {
             && content_epoch == self.clock_epoch.load(Ordering::SeqCst)
             && tag == self.committed_clock.load(Ordering::SeqCst);
         if valid {
-            (position, None)
+            (position, None, false)
         } else {
             let current_tag = self.committed_clock.load(Ordering::SeqCst);
             let current = &self.baselines[(current_tag & 1) as usize];
@@ -316,7 +329,7 @@ impl Ring {
             } else {
                 current.frame.load(Ordering::SeqCst)
             };
-            (frame as f64 / self.format.sample_rate as f64, None)
+            (frame as f64 / self.format.sample_rate as f64, None, false)
         }
     }
 }
@@ -353,11 +366,12 @@ impl PcmControl {
         let head = self.ring.head.load(Ordering::Acquire);
         let queued = tail.saturating_sub(head).min(self.ring.slots.len() as u64) as usize;
         let terminal = self.ring.terminal.load(Ordering::Acquire);
-        let (position_seconds, stamp) = self.ring.rendered_clock();
+        let (position_seconds, stamp, clock_stable) = self.ring.rendered_clock();
         PcmSnapshot {
             epoch: self.ring.epoch.load(Ordering::Acquire),
             produced_frames: tail,
             position_seconds,
+            clock_stable,
             consumed_frames: self.ring.consumed.load(Ordering::Relaxed),
             underflow_frames: self.ring.underflows.load(Ordering::Relaxed),
             queued_frames: queued,
@@ -405,7 +419,7 @@ impl PcmControl {
         None
     }
     pub fn set_paused(&self, paused: bool) {
-        self.ring.paused.store(paused, Ordering::Release);
+        self.ring.paused.store(paused, Ordering::SeqCst);
     }
     pub fn set_seeking(&self, seeking: bool) {
         self.ring.seeking.store(seeking, Ordering::Release);
@@ -503,6 +517,10 @@ impl PcmProducer {
             consumer_ended: AtomicBool::new(false),
             #[cfg(test)]
             pause_after_publication: AtomicBool::new(false),
+            #[cfg(test)]
+            hold_publication: AtomicBool::new(false),
+            #[cfg(test)]
+            publication_held: AtomicBool::new(false),
             format,
             allocated_bytes: bytes,
         });
@@ -769,6 +787,64 @@ impl Source for PcmSource {
 #[cfg(test)]
 mod presentation_tests {
     use super::*;
+
+    #[test]
+    fn pause_during_publication_requires_a_settled_clock_before_acknowledgement() {
+        let (mut producer, mut source, control) = PcmProducer::new(
+            PcmFormat {
+                sample_rate: 1000,
+                channels: 1,
+            },
+            2,
+            0,
+            None,
+        )
+        .unwrap();
+        source.set_deferred_clock(true);
+        let presented = ProcessingStamp {
+            end_frame: 1,
+            fraction: 0,
+            processing_sequence: 1,
+            settings: PlaybackProcessingSettings::default(),
+            latency_frames: 0,
+        };
+        assert!(producer.push_processed_frame(presented, &[0.25]));
+        assert_eq!(source.next(), Some(0.25));
+        let (stamp, epoch) = source.current_source_stamp().unwrap();
+        struct Release(Arc<Ring>);
+        impl Drop for Release {
+            fn drop(&mut self) {
+                self.0.hold_publication.store(false, Ordering::Release);
+            }
+        }
+        let release = Release(control.ring.clone());
+        control.ring.hold_publication.store(true, Ordering::Release);
+        let rendering = control.clone();
+        let writer = std::thread::spawn(move || rendering.commit_rendered_stamp(stamp, epoch));
+        let deadline = std::time::Instant::now() + Duration::from_secs(3);
+        while !control.ring.publication_held.load(Ordering::Acquire) {
+            assert!(
+                std::time::Instant::now() < deadline,
+                "Renderer did not enter publication"
+            );
+            std::thread::yield_now();
+        }
+        control.set_paused(true);
+        assert!(!control.snapshot().clock_stable);
+        drop(release);
+        assert!(writer.join().unwrap());
+        let paused = control.snapshot();
+        assert!(paused.clock_stable);
+        assert_eq!(paused.position_seconds, 0.001);
+        assert!(!control.commit_rendered_stamp(
+            ProcessingStamp {
+                end_frame: 2,
+                ..presented
+            },
+            epoch
+        ));
+        assert_eq!(control.snapshot().position_seconds, paused.position_seconds);
+    }
 
     #[test]
     fn post_publication_pause_cannot_revoke_an_accepted_presented_frame() {

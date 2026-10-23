@@ -3762,6 +3762,22 @@ mod platform {
         }
         Ok(file)
     }
+    fn stat_relative(parent: &File, name: &str) -> Result<libc::stat> {
+        let name = CString::new(name)?;
+        let mut stat = std::mem::MaybeUninit::<libc::stat>::uninit();
+        if unsafe {
+            libc::fstatat(
+                parent.as_raw_fd(),
+                name.as_ptr(),
+                stat.as_mut_ptr(),
+                libc::AT_SYMLINK_NOFOLLOW,
+            )
+        } != 0
+        {
+            return Err(io::Error::last_os_error().into());
+        }
+        Ok(unsafe { stat.assume_init() })
+    }
     pub(super) fn pin_directory(path: &Path) -> Result<(PathBuf, Vec<File>)> {
         let fd = unsafe {
             libc::open(
@@ -3865,9 +3881,11 @@ mod platform {
         name: &str,
         expected: &FileIdentity,
     ) -> Result<()> {
-        let child = open_relative(parent, name, true, false)?;
+        let child = stat_relative(parent, name)?;
         ensure!(
-            &identity(&child)? == expected,
+            child.st_mode & libc::S_IFMT == libc::S_IFDIR
+                && child.st_dev as u64 == expected.device
+                && child.st_ino.to_string() == expected.object,
             "Grouped download directory identity changed"
         );
         Ok(())
@@ -3906,14 +3924,15 @@ mod platform {
         let mut index = 1;
         for component in path.components() {
             if let Component::Normal(name) = component {
-                let proof = open_relative(
+                let proof = stat_relative(
                     &pins[index - 1],
                     name.to_str().context("Invalid destination name")?,
-                    true,
-                    false,
                 )?;
+                let pinned = pins[index].metadata()?;
                 ensure!(
-                    identity(&proof)? == identity(&pins[index])?,
+                    proof.st_mode & libc::S_IFMT == libc::S_IFDIR
+                        && proof.st_dev as u64 == pinned.dev()
+                        && proof.st_ino as u64 == pinned.ino(),
                     "Selected destination moved or was replaced"
                 );
                 index += 1;
@@ -3926,9 +3945,11 @@ mod platform {
         name: &str,
         expected: &FileIdentity,
     ) -> Result<()> {
-        let proof = open_relative(parent, name, false, false)?;
+        let stat = stat_relative(parent, name)?;
         ensure!(
-            &identity(&proof)? == expected,
+            stat.st_mode & libc::S_IFMT == libc::S_IFREG
+                && stat.st_dev as u64 == expected.device
+                && stat.st_ino.to_string() == expected.object,
             "Owned partial namespace identity changed"
         );
         Ok(())

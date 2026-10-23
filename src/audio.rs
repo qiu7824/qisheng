@@ -2679,6 +2679,12 @@ fn run_engine(
                     failure,
                 );
             } else if stream.attached && snapshot.lock().unwrap().status != PlaybackStatus::Error {
+                // Pause is acknowledged only after a frame that already crossed
+                // its presentation fence has finished publishing its clock.
+                if !desired_playing && decoded.pcm.capacity_frames != 0 && !decoded.pcm.clock_stable
+                {
+                    continue;
+                }
                 let mut state = snapshot.lock().unwrap();
                 state.position_seconds = decoded.pcm.position_seconds;
                 state.has_presented_media |=

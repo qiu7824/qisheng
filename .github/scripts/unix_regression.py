@@ -8,6 +8,7 @@ import sys
 import time
 
 targets = [
+    'backend_timeout_stop', 'download_core',
     'download_cleanup', 'backend_download_tasks', 'library_scan',
     'repository_library_roots', 'backend_playback_processing', 'audio_cache_latency',
     'audio_player_long_stream',
