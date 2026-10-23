@@ -22,6 +22,8 @@ jobs:
           rustc +1.99.0 --edition 2024 -O .github/scripts/macos_timing_probe.rs -o "$RUNNER_TEMP/macos-timing-probe"
           RUST_LIB_BACKTRACE=1 "$RUNNER_TEMP/macos-timing-probe" | tee "$RUNNER_TEMP/native-timers.log"
           RUST_LIB_BACKTRACE=0 "$RUNNER_TEMP/macos-timing-probe" | tee -a "$RUNNER_TEMP/native-timers.log"
+          xcrun swiftc .github/scripts/macos_activity_probe.swift -o "$RUNNER_TEMP/macos-activity-probe"
+          "$RUNNER_TEMP/macos-activity-probe" | tee -a "$RUNNER_TEMP/native-timers.log"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
         with:
