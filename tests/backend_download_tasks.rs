@@ -387,7 +387,13 @@ fn complete_flac_case(case: CompleteCase) {
     let listener = std::net::TcpListener::bind(("127.0.0.1", 0)).unwrap();
     listener.set_nonblocking(true).unwrap();
     let url = format!("http://{}/verified.flac", listener.local_addr().unwrap());
-    let original = encoded::mono_verbatim_flac();
+    let original = if case == CompleteCase::LocalPlayWithoutSource {
+        // Keep real PCM available across the actor queries used to verify
+        // identity, output and queue state on native hosted runners.
+        encoded::mono_verbatim_flac_frames(32)
+    } else {
+        encoded::mono_verbatim_flac()
+    };
     let expected = original.clone();
     let stopping = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
     let stopped = stopping.clone();
