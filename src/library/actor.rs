@@ -1,5 +1,4 @@
 //! Owned filesystem workers with one acknowledged batch per worker.
-#[cfg(windows)]
 use super::authority::RelocationAdmissionError;
 use super::authority::{
     AuthorityRegistry, AuthorizedFile, FileAuthorization, FileChangeStamp, LiveRelocationHint,
@@ -1829,13 +1828,31 @@ fn prepare_auto_relink(
                     closing,
                     Instant::now() + CONTENT_HASH_TIMEOUT,
                 ) {
-                    Ok(_lease) => authority.prepare_asset_relocation_with_content(
-                        target_authority,
-                        &identity,
-                        &opened,
-                        old_sha,
-                        old_sha,
-                    ),
+                    Ok(_lease) => {
+                        match authority.prepare_asset_relocation_with_content(
+                            target_authority,
+                            &identity,
+                            &opened,
+                            old_sha,
+                            old_sha,
+                        ) {
+                            Ok(ticket) => Ok(ticket),
+                            Err(error)
+                                if matches!(
+                                error.downcast_ref::<RelocationAdmissionError>(),
+                                Some(RelocationAdmissionError::OriginalLiveProofUnavailable
+                                    | RelocationAdmissionError::OriginalRepresentationChanged)
+                            ) =>
+                            {
+                                authority.prepare_asset_relocation_from_binding(
+                                    old_binding,
+                                    target_authority,
+                                    &opened,
+                                )
+                            }
+                            Err(error) => Err(error),
+                        }
+                    }
                     Err(error) => Err(error),
                 }
             } else {

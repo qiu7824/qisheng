@@ -1,4 +1,4 @@
-#![cfg(any(windows, target_os = "linux"))]
+#![cfg(any(windows, target_os = "linux", target_os = "macos"))]
 use lx_gpui_player::domain::library::LibraryRoot;
 use lx_gpui_player::domain::library_watch::LibraryWatchToken;
 use lx_gpui_player::library::authority::{AuthorityRegistry, RootAuthority};

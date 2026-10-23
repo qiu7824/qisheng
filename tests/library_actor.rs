@@ -1,4 +1,4 @@
-#![cfg(any(windows, target_os = "linux"))]
+#![cfg(any(windows, target_os = "linux", target_os = "macos"))]
 use lx_gpui_player::catalog::Catalog;
 use lx_gpui_player::domain::library::*;
 use lx_gpui_player::library::actor::{LibraryActor, LibraryCompletion};

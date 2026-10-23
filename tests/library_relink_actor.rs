@@ -1,4 +1,4 @@
-#![cfg(any(windows, target_os = "linux"))]
+#![cfg(any(windows, target_os = "linux", target_os = "macos"))]
 
 use lx_gpui_player::{
     catalog::Catalog,
@@ -256,7 +256,7 @@ fn scan_content_evidence_owns_actual_source_proof_until_ack_and_retained_evidenc
     drop(prepared);
 }
 
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 #[test]
 fn delivered_content_evidence_rejects_a_body_write_even_when_original_mtime_is_restored() {
     let _case = CASES.lock().unwrap_or_else(|error| error.into_inner());
@@ -387,7 +387,7 @@ fn actual_live_rename_hints_and_preparation_preserve_stable_ids_and_ack_releases
     assert_eq!(prepared.expected_binding_revision, binding.binding_revision);
     #[cfg(windows)]
     assert_eq!(prepared.evidence, RelinkEvidence::SameOpenObject);
-    #[cfg(target_os = "linux")]
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
     assert_eq!(prepared.evidence, RelinkEvidence::SameFileAndContent);
     prepared.check().unwrap();
     held.read_exact(&mut marker).unwrap();
@@ -712,7 +712,7 @@ fn no_live_windows_original_requires_trusted_hash_and_keeps_ticket_actual_until_
     drop(prepared);
 }
 
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 #[test]
 fn unknown_linux_original_content_is_typed_selection_with_actual_target_identity() {
     let _case = CASES.lock().unwrap_or_else(|error| error.into_inner());

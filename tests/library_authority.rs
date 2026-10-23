@@ -1,4 +1,4 @@
-#![cfg(any(windows, target_os = "linux"))]
+#![cfg(any(windows, target_os = "linux", target_os = "macos"))]
 use lx_gpui_player::domain::library::{LibraryRoot, LocalAssetAuthority};
 use lx_gpui_player::library::authority::{AuthorityRegistry, RootAuthority, RootHealth};
 use lx_gpui_player::library::scan::ScanContext;
@@ -413,7 +413,7 @@ fn nested_junction_never_expands_a_root_grant_or_sidecar_access() {
     assert!(authority.open_directory(&link).is_err());
     assert_eq!(fs::read(outside.path().join("secret.wav")).unwrap(), [9]);
 }
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 #[test]
 fn openat_rejects_nested_links_and_retains_a_renamed_file_inside_its_physical_root() {
     use std::os::unix::fs::symlink;
@@ -467,7 +467,7 @@ fn actual_active_file_relocation_keeps_read_cursor_and_never_reads_reused_old_pa
     let prepared = registry
         .prepare_asset_relocation(&rebound, &identity, &target)
         .unwrap();
-    #[cfg(target_os = "linux")]
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
     let prepared = {
         use sha2::Digest;
         let original_sha = format!("{:x}", sha2::Sha256::digest(b"abcdefghijkl"));
@@ -491,7 +491,7 @@ fn actual_active_file_relocation_keeps_read_cursor_and_never_reads_reused_old_pa
         prepared.evidence(),
         lx_gpui_player::domain::library_watch::RelinkEvidence::SameOpenObject
     );
-    #[cfg(target_os = "linux")]
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
     assert_eq!(
         prepared.evidence(),
         lx_gpui_player::domain::library_watch::RelinkEvidence::SameFileAndContent
@@ -691,7 +691,7 @@ fn anchored_directory_enumeration_pins_its_namespace_only_for_the_iterator_lifet
     assert!(directory.read_dir().is_err());
 }
 
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 #[test]
 fn linux_automatic_same_inode_relocation_rejects_weak_stamp_and_forged_mtime_content() {
     use sha2::Digest;
@@ -762,7 +762,7 @@ fn linux_automatic_same_inode_relocation_rejects_weak_stamp_and_forged_mtime_con
     );
 }
 
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 #[test]
 fn linux_non_regular_replacement_is_rejected_without_waiting_for_a_fifo_writer() {
     use std::os::unix::ffi::OsStrExt;
@@ -841,9 +841,8 @@ fn live_relocation_hints_use_actual_original_handles_and_mark_hardlinks_for_sele
     );
 }
 
-#[cfg(windows)]
 #[test]
-fn verified_windows_binding_recovers_a_cached_file_without_a_live_original_data_handle() {
+fn verified_native_binding_recovers_a_cached_file_without_a_live_original_data_handle() {
     use lx_gpui_player::domain::library_watch::{LibraryAssetBinding, RelinkEvidence};
     use sha2::Digest;
     let temp = tempfile::tempdir_in(std::env::temp_dir()).unwrap();
@@ -903,7 +902,6 @@ fn verified_windows_binding_recovers_a_cached_file_without_a_live_original_data_
     assert_eq!(fs::read(&old).unwrap(), b"new body at reused old path");
 }
 
-#[cfg(windows)]
 #[test]
 fn historical_content_admission_rejects_missing_hash_wrong_body_and_original_same_object_alias() {
     use lx_gpui_player::domain::library_watch::LibraryAssetBinding;

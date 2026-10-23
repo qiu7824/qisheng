@@ -2183,14 +2183,7 @@ impl AuthorityRegistry {
         record: &LocalAssetAuthority,
         opened: &AuthorizedFile,
     ) -> Result<PreparedAssetRelocation> {
-        #[cfg(not(windows))]
-        {
-            let _ = (old_binding, record, opened);
-            anyhow::bail!(
-                "UnsupportedCapability: no-live automatic relocation requires Windows 128-bit file identity and verified content"
-            );
-        }
-        #[cfg(windows)]
+        #[cfg(any(windows, unix))]
         {
             ensure!(
                 old_binding.asset_id == record.asset_id && old_binding.binding_revision > 0,
@@ -2204,8 +2197,12 @@ impl AuthorityRegistry {
                 .context("Historical relocation has no verified original identity")?;
             identity.validate()?;
             ensure!(
-                identity.kind == "windows_file_id" && identity.file_id.len() == 32,
-                "Historical relocation requires the original 128-bit Windows file identity"
+                if cfg!(windows) {
+                    identity.kind == "windows_file_id" && identity.file_id.len() == 32
+                } else {
+                    identity.kind == "unix_inode" && identity.file_id.len() == 16
+                },
+                "Historical relocation requires the original target-native file identity"
             );
             let sha = old_binding
                 .content_sha256
