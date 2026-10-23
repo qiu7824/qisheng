@@ -2075,9 +2075,31 @@ fn pin_directory(path: &Path) -> Result<Vec<File>> {
     }
     Ok(pins)
 }
-#[cfg(not(windows))]
-fn pin_directory(_path: &Path) -> Result<Vec<File>> {
-    anyhow::bail!("UnsupportedCapability: pinned tag namespace requires Windows")
+#[cfg(unix)]
+fn pin_directory(path: &Path) -> Result<Vec<File>> {
+    use std::os::unix::fs::OpenOptionsExt;
+    validate_library_path(path)?;
+    let normalized = normalize_local_path(path);
+    ensure!(
+        normalized.components().count() <= 256,
+        "Tag namespace exceeds its component limit"
+    );
+    let mut chain = normalized.ancestors().collect::<Vec<_>>();
+    chain.reverse();
+    let mut pins = Vec::new();
+    for directory in chain {
+        let file = OpenOptions::new()
+            .read(true)
+            .custom_flags(libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC)
+            .open(directory)?;
+        ensure!(
+            file.metadata()?.is_dir()
+                && normalize_local_path(&raw_actual_path(&file)?) == directory,
+            "Tag namespace directory moved or was redirected"
+        );
+        pins.push(file);
+    }
+    Ok(pins)
 }
 #[cfg(windows)]
 fn create_owned_file(path: &Path) -> Result<File> {
@@ -2097,9 +2119,21 @@ fn create_owned_file(path: &Path) -> Result<File> {
         .open(path)?;
     Ok(file)
 }
-#[cfg(not(windows))]
-fn create_owned_file(_path: &Path) -> Result<File> {
-    anyhow::bail!("UnsupportedCapability: owned tag artifacts require Windows")
+#[cfg(unix)]
+fn create_owned_file(path: &Path) -> Result<File> {
+    use std::os::unix::fs::OpenOptionsExt;
+    let file = OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create_new(true)
+        .mode(0o600)
+        .custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC | libc::O_NONBLOCK)
+        .open(path)?;
+    ensure!(
+        raw_normal_file(&file)? && raw_links(&file)? == 1,
+        "Invalid new tag artifact"
+    );
+    Ok(file)
 }
 #[cfg(windows)]
 fn open_existing_owned(path: &Path) -> Result<TagNativeFile> {
@@ -2122,9 +2156,26 @@ fn open_existing_owned(path: &Path) -> Result<TagNativeFile> {
     );
     Ok(TagNativeFile::Native(file))
 }
-#[cfg(not(windows))]
-fn open_existing_owned(_path: &Path) -> Result<TagNativeFile> {
-    anyhow::bail!("UnsupportedCapability: tag recovery requires Windows")
+#[cfg(unix)]
+fn open_existing_owned(path: &Path) -> Result<TagNativeFile> {
+    use std::os::unix::{fs::OpenOptionsExt, io::AsRawFd};
+    let file = OpenOptions::new()
+        .read(true)
+        .write(true)
+        .custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC | libc::O_NONBLOCK)
+        .open(path)?;
+    ensure!(
+        raw_normal_file(&file)?
+            && raw_links(&file)? == 1
+            && normalize_local_path(&raw_actual_path(&file)?) == normalize_local_path(path),
+        "Tag artifact namespace changed"
+    );
+    ensure!(
+        unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } == 0,
+        "Tag artifact is locked by another owner: {}",
+        io::Error::last_os_error()
+    );
+    Ok(TagNativeFile::Native(file))
 }
 #[cfg(windows)]
 fn raw_normal_file(file: &File) -> Result<bool> {
@@ -2133,9 +2184,9 @@ fn raw_normal_file(file: &File) -> Result<bool> {
     let metadata = file.metadata()?;
     Ok(metadata.is_file() && metadata.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT == 0)
 }
-#[cfg(not(windows))]
-fn raw_normal_file(_file: &File) -> Result<bool> {
-    anyhow::bail!("UnsupportedCapability: tag file identity")
+#[cfg(unix)]
+fn raw_normal_file(file: &File) -> Result<bool> {
+    Ok(file.metadata()?.is_file())
 }
 #[cfg(windows)]
 fn raw_actual_identity(file: &File) -> Result<FileIdentity> {
@@ -2167,9 +2218,11 @@ fn raw_actual_identity(file: &File) -> Result<FileIdentity> {
             .collect(),
     })
 }
-#[cfg(not(windows))]
-fn raw_actual_identity(_file: &File) -> Result<FileIdentity> {
-    anyhow::bail!("UnsupportedCapability: tag file identity")
+#[cfg(unix)]
+fn raw_actual_identity(file: &File) -> Result<FileIdentity> {
+    use std::os::unix::fs::MetadataExt;
+    let metadata = file.metadata()?;
+    FileIdentity::from_native_parts(metadata.dev(), &metadata.ino().to_string())
 }
 #[cfg(windows)]
 fn raw_links(file: &File) -> Result<u32> {
@@ -2184,9 +2237,10 @@ fn raw_links(file: &File) -> Result<u32> {
     );
     Ok(info.nNumberOfLinks)
 }
-#[cfg(not(windows))]
-fn raw_links(_file: &File) -> Result<u32> {
-    anyhow::bail!("UnsupportedCapability: tag hardlink identity")
+#[cfg(unix)]
+fn raw_links(file: &File) -> Result<u32> {
+    use std::os::unix::fs::MetadataExt;
+    Ok(u32::try_from(file.metadata()?.nlink())?)
 }
 #[cfg(windows)]
 fn raw_actual_path(file: &File) -> Result<PathBuf> {
@@ -2209,7 +2263,28 @@ fn raw_actual_path(file: &File) -> Result<PathBuf> {
     validate_library_path(&path)?;
     Ok(normalize_local_path(&path))
 }
-#[cfg(not(windows))]
-fn raw_actual_path(_file: &File) -> Result<PathBuf> {
-    anyhow::bail!("UnsupportedCapability: tag physical path")
+#[cfg(unix)]
+fn raw_actual_path(file: &File) -> Result<PathBuf> {
+    use std::os::unix::io::AsRawFd;
+    #[cfg(target_os = "linux")]
+    let path = std::fs::read_link(format!("/proc/self/fd/{}", file.as_raw_fd()))?;
+    #[cfg(target_os = "macos")]
+    let path = {
+        use std::os::unix::ffi::OsStringExt;
+        let mut bytes = vec![0u8; libc::PATH_MAX as usize];
+        ensure!(
+            unsafe { libc::fcntl(file.as_raw_fd(), libc::F_GETPATH, bytes.as_mut_ptr()) } == 0,
+            "Cannot query native tag file path: {}",
+            io::Error::last_os_error()
+        );
+        bytes.truncate(
+            bytes
+                .iter()
+                .position(|b| *b == 0)
+                .context("Unterminated native tag file path")?,
+        );
+        PathBuf::from(std::ffi::OsString::from_vec(bytes))
+    };
+    validate_library_path(&path)?;
+    Ok(normalize_local_path(&path))
 }

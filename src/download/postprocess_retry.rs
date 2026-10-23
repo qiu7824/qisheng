@@ -117,6 +117,18 @@ pub struct RetryDeletionAttestation {
 impl RetryDeletionAttestation {
     pub fn validate(&self) -> Result<()> {
         let value = &self.volume_guid;
+        if self.filesystem == "POSIX-UNLINK" {
+            ensure!(
+                value
+                    .strip_prefix("posix-dev-")
+                    .is_some_and(|device| device.len() == 16
+                        && device
+                            .bytes()
+                            .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))),
+                "Invalid canonical Unix retry device identity"
+            );
+            return Ok(());
+        }
         ensure!(
             self.filesystem == "NTFS"
                 && value.len() == 49

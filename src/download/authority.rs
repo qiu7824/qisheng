@@ -1170,10 +1170,15 @@ fn prove_retry_absent(
         grant.verify()?;
         Ok(())
     }
-    #[cfg(not(windows))]
+    #[cfg(unix)]
     {
-        let _ = (record, calibration);
-        bail!("UnsupportedCapability: calibrated retry retirement requires native NTFS semantics")
+        ensure!(
+            calibration.unlinked.as_ref() == Some(&record.identity)
+                && calibration.filesystem == "POSIX-UNLINK"
+                && calibration.volume_guid == platform::cleanup_volume_guid(grant.parent())?,
+            "Unix retry retirement has no live same-inode zero-link witness"
+        );
+        grant.verify()
     }
 }
 pub(crate) fn recover_retry_retirement(
@@ -1276,6 +1281,16 @@ impl PreparedRetryArtifactRetirement {
         );
         if self.file.metadata().is_ok() {
             self.file.request_owned_removal()?;
+            #[cfg(unix)]
+            {
+                ensure!(
+                    self.file.inspect(platform::link_count)? == 0
+                        && self.file.inspect(platform::identity)?
+                            == self.allocation.record.identity,
+                    "Retry unlink changed its actual inode"
+                );
+                self.calibration.unlinked = Some(self.allocation.record.identity.clone());
+            }
             self.file.close_after_join()?;
         }
         self.file.inspect_namespace(|grant| {
@@ -1392,7 +1407,7 @@ fn retire_retry_file(
             && grant.identity() == &allocation.selected_root_identity,
         "Retry actual file namespace owner changed"
     );
-    let calibration = grant.calibrate_cleanup_volume()?;
+    let mut calibration = grant.calibrate_cleanup_volume()?;
     #[cfg(windows)]
     ensure!(
         file.inspect(platform::cleanup_volume_guid)? == calibration.volume_guid
@@ -1415,6 +1430,15 @@ fn retire_retry_file(
     file.inspect(|native| {
         platform::remove_owned(native, grant.parent(), &record.basename, &record.identity)
     })?;
+    #[cfg(unix)]
+    {
+        ensure!(
+            file.inspect(platform::link_count)? == 0
+                && file.inspect(platform::identity)? == record.identity,
+            "Retry unlink changed its actual inode"
+        );
+        calibration.unlinked = Some(record.identity.clone());
+    }
     file.close_after_join()?;
     grant.verify()?;
     match prove_retry_absent(grant, record, &calibration) {
@@ -2080,6 +2104,8 @@ impl NativeDispositionWitness {
 pub(crate) struct NativeVolumeCalibration {
     volume_guid: String,
     filesystem: String,
+    #[cfg(unix)]
+    unlinked: Option<FileIdentity>,
 }
 impl CleanupNativeAbsence {
     pub(crate) fn record(&self) -> &OwnedPartRecord {
@@ -2177,6 +2203,7 @@ impl DestinationGrant {
             Ok(NativeVolumeCalibration {
                 volume_guid,
                 filesystem: "POSIX-UNLINK".into(),
+                unlinked: None,
             })
         }
     }

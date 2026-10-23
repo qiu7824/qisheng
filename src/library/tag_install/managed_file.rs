@@ -163,12 +163,14 @@ impl ManagedAllocationAck<'_> {
                 == Some(allocation.record.basename.as_str())
                 && allocation.reserved_max_bytes == self.maximum
                 && allocation.kind == expected_kind
-                && allocation.record.identity.object == facts.identity.file_id
-                && allocation.record.identity.device
-                    == u64::from_str_radix(&facts.identity.volume, 16)?
-                && allocation.working_directory_identity.object == facts.directory_identity.file_id
-                && allocation.working_directory_identity.device
-                    == u64::from_str_radix(&facts.directory_identity.volume, 16)?
+                && FileIdentity::from_native_parts(
+                    allocation.record.identity.device,
+                    &allocation.record.identity.object,
+                )? == facts.identity
+                && FileIdentity::from_native_parts(
+                    allocation.working_directory_identity.device,
+                    &allocation.working_directory_identity.object,
+                )? == facts.directory_identity
                 && normalize_local_path(&allocation.working_directory_path)
                     == normalize_local_path(
                         self.path

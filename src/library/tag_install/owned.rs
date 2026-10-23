@@ -1099,6 +1099,10 @@ impl TagOwnedInstallation {
                     observe_file(file)? == *observation,
                     "Actual sealed artifact changed before disposition"
                 );
+                #[cfg(unix)]
+                file.inspect_native(|native| {
+                    state.calibration.capture(parent, native, &facts.identity)
+                })?;
                 state.calibration.present(parent, &facts.identity)?;
                 coordinator.check_retirement_owner(&state.selection)?;
                 file.request_removal()?;
@@ -1133,9 +1137,10 @@ impl TagOwnedInstallation {
             if let Some(managed) = &artifact.managed {
                 let released = managed.release_retired()?;
                 ensure!(
-                    released.identity.object == facts.identity.file_id
-                        && released.identity.device
-                            == u64::from_str_radix(&facts.identity.volume, 16)?,
+                    FileIdentity::from_native_parts(
+                        released.identity.device,
+                        &released.identity.object
+                    )? == facts.identity,
                     "Managed retirement released another actual original descriptor"
                 );
             }

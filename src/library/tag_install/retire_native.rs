@@ -34,10 +34,18 @@ pub(super) fn close(file: &mut Option<File>) -> Result<()> {
         }
         Ok(())
     }
-    #[cfg(not(windows))]
+    #[cfg(unix)]
     {
-        let _ = file;
-        anyhow::bail!("UnsupportedCapability: checked native tag close requires Windows")
+        use std::os::unix::io::IntoRawFd;
+        if let Some(owned) = file.take() {
+            let fd = owned.into_raw_fd();
+            // A failed Unix close must not be retried against a possibly reused fd.
+            if unsafe { libc::close(fd) } != 0 {
+                return Err(io::Error::last_os_error())
+                    .context("Native tag descriptor close failed");
+            }
+        }
+        Ok(())
     }
 }
 
@@ -62,10 +70,10 @@ pub(super) fn freeze_write_time(file: &File) -> Result<()> {
         );
         Ok(())
     }
-    #[cfg(not(windows))]
+    #[cfg(unix)]
     {
-        let _ = file;
-        anyhow::bail!("UnsupportedCapability: stable tag writer time requires Windows")
+        file.sync_all()?;
+        Ok(())
     }
 }
 pub(super) fn settle_write_time(file: &File) -> Result<()> {
@@ -98,10 +106,10 @@ pub(super) fn settle_write_time(file: &File) -> Result<()> {
         file.sync_all()?;
         Ok(())
     }
-    #[cfg(not(windows))]
+    #[cfg(unix)]
     {
-        let _ = file;
-        anyhow::bail!("UnsupportedCapability: stable tag writer time requires Windows")
+        file.sync_all()?;
+        Ok(())
     }
 }
 
@@ -115,6 +123,8 @@ pub(super) struct Calibration {
     volume: Option<String>,
     directory: Option<FileIdentity>,
     complete: bool,
+    #[cfg(unix)]
+    unix_object: Option<File>,
 }
 
 #[derive(Default)]
@@ -401,9 +411,33 @@ pub(super) fn disposition(file: &File) -> Result<()> {
     );
     Ok(())
 }
-#[cfg(not(windows))]
-pub(super) fn disposition(_file: &File) -> Result<()> {
-    anyhow::bail!("UnsupportedCapability: tag disposition requires Windows")
+#[cfg(unix)]
+pub(super) fn disposition(file: &File) -> Result<()> {
+    use std::os::unix::{ffi::OsStrExt, io::AsRawFd};
+    let path = raw_actual_path(file)?;
+    let pins = pin_directory(path.parent().context("Tag artifact parent missing")?)?;
+    let parent = pins.last().context("Tag artifact parent unpinned")?;
+    let name = std::ffi::CString::new(
+        path.file_name()
+            .context("Tag artifact name missing")?
+            .as_bytes(),
+    )?;
+    let named = File::open(&path)?;
+    ensure!(
+        raw_actual_identity(&named)? == raw_actual_identity(file)? && raw_links(file)? == 1,
+        "Tag artifact changed or gained a hardlink before unlink"
+    );
+    ensure!(
+        unsafe { libc::unlinkat(parent.as_raw_fd(), name.as_ptr(), 0) } == 0,
+        "Native tag unlink failed: {}",
+        io::Error::last_os_error()
+    );
+    ensure!(
+        raw_links(file)? == 0,
+        "Tag artifact namespace changed during unlink"
+    );
+    parent.sync_all()?;
+    Ok(())
 }
 #[cfg(windows)]
 pub(super) fn zero_links(file: &File, expected: &FileIdentity) -> Result<()> {
@@ -426,14 +460,30 @@ pub(super) fn zero_links(file: &File, expected: &FileIdentity) -> Result<()> {
     );
     Ok(())
 }
-#[cfg(not(windows))]
-pub(super) fn zero_links(_file: &File, _expected: &FileIdentity) -> Result<()> {
-    anyhow::bail!("UnsupportedCapability: tag disposition requires Windows")
+#[cfg(unix)]
+pub(super) fn zero_links(file: &File, expected: &FileIdentity) -> Result<()> {
+    ensure!(
+        &raw_actual_identity(file)? == expected && raw_links(file)? == 0,
+        "Tag unlink has no same-descriptor zero-link witness"
+    );
+    Ok(())
 }
 
 impl Calibration {
     pub(super) fn has_live_handles(&self) -> bool {
-        self.probe.is_some() || self.reader.is_some() || self.controls.iter().any(Option::is_some)
+        self.probe.is_some()
+            || self.reader.is_some()
+            || self.controls.iter().any(Option::is_some)
+            || {
+                #[cfg(unix)]
+                {
+                    self.unix_object.is_some()
+                }
+                #[cfg(not(unix))]
+                {
+                    false
+                }
+            }
     }
     #[cfg(windows)]
     fn scope(&self, parent: &File) -> Result<()> {
@@ -607,26 +657,84 @@ impl Calibration {
         );
         Ok(states[0])
     }
-    #[cfg(not(windows))]
+    #[cfg(unix)]
+    pub(super) fn capture(
+        &mut self,
+        parent: &File,
+        file: &File,
+        expected: &FileIdentity,
+    ) -> Result<()> {
+        self.prepare(parent)?;
+        ensure!(
+            &raw_actual_identity(file)? == expected
+                && raw_links(file)? == 1
+                && raw_actual_identity(parent)?.volume == expected.volume,
+            "Tag retirement requires its actual same-volume owned inode"
+        );
+        ensure!(
+            self.unix_object.is_none(),
+            "Previous tag unlink descriptor remains retained"
+        );
+        self.unix_object = Some(file.try_clone()?);
+        Ok(())
+    }
+    #[cfg(unix)]
     pub(super) fn absent(&mut self, _parent: &File, _expected: &FileIdentity) -> Result<bool> {
-        anyhow::bail!("UnsupportedCapability: calibrated cold tag retirement requires Windows")
+        anyhow::bail!(
+            "Unix cold tag retirement requires a durable zero-link witness; missing names are insufficient"
+        )
     }
-    #[cfg(not(windows))]
-    pub(super) fn prepare(&mut self, _parent: &File) -> Result<()> {
-        anyhow::bail!("UnsupportedCapability: calibrated tag cleanup requires Windows")
+    #[cfg(unix)]
+    pub(super) fn prepare(&mut self, parent: &File) -> Result<()> {
+        ensure!(
+            parent.metadata()?.is_dir(),
+            "Tag retirement parent is not a directory"
+        );
+        let identity = raw_actual_identity(parent)?;
+        if let Some(expected) = &self.directory {
+            ensure!(
+                &identity == expected,
+                "Tag retirement directory identity changed"
+            );
+        } else {
+            self.directory = Some(identity);
+        }
+        Ok(())
     }
-    #[cfg(not(windows))]
-    pub(super) fn present(&mut self, _parent: &File, _expected: &FileIdentity) -> Result<()> {
-        anyhow::bail!("UnsupportedCapability: calibrated tag cleanup requires Windows")
+    #[cfg(unix)]
+    pub(super) fn present(&mut self, parent: &File, expected: &FileIdentity) -> Result<()> {
+        self.prepare(parent)?;
+        if self.directory.as_ref() == Some(expected) {
+            return Ok(());
+        }
+        let file = self
+            .unix_object
+            .as_ref()
+            .context("Tag retirement has no actual retained inode")?;
+        ensure!(
+            &raw_actual_identity(file)? == expected && raw_links(file)? == 1,
+            "Actual tag retirement inode changed before unlink"
+        );
+        Ok(())
     }
-    #[cfg(not(windows))]
+    #[cfg(unix)]
     pub(super) fn status(
         &mut self,
-        _parent: &File,
-        _expected: &FileIdentity,
-        _pending: bool,
+        parent: &File,
+        expected: &FileIdentity,
+        pending: bool,
     ) -> Result<()> {
-        anyhow::bail!("UnsupportedCapability: calibrated tag cleanup requires Windows")
+        self.prepare(parent)?;
+        zero_links(
+            self.unix_object
+                .as_ref()
+                .context("Tag retirement has no held unlink witness")?,
+            expected,
+        )?;
+        if !pending {
+            close(&mut self.unix_object)?;
+        }
+        Ok(())
     }
 }
 
