@@ -553,7 +553,7 @@ mod tests {
             let listener = std::net::TcpListener::bind(("127.0.0.1", 0)).unwrap();
             listener.set_nonblocking(true).unwrap();
             let url = format!("http://{}/original.flac", listener.local_addr().unwrap());
-            let body = encoded::mono_verbatim_flac();
+            let body = encoded::mono_verbatim_flac_frames(32);
             let served = body.clone();
             let stop = Arc::new(AtomicBool::new(false));
             let stopping = stop.clone();
