@@ -27,6 +27,7 @@ pub mod pcm;
 pub mod pitch;
 pub mod prepared;
 pub mod processing;
+mod scheduling;
 pub mod spatial;
 pub mod supply;
 pub mod transport;
@@ -377,25 +378,36 @@ impl AudioPlayer {
         options: TransportOptions,
         volume: f32,
     ) -> Self {
+        Self::with_transport_options_and_preferences(mode, options, volume, Default::default())
+    }
+
+    pub(crate) fn with_transport_options_and_preferences(
+        mode: AudioOutputMode,
+        options: TransportOptions,
+        volume: f32,
+        preferences: crate::domain::audio_output::AudioPreferences,
+    ) -> Self {
         let output = match mode {
             AudioOutputMode::Device => OutputMode::Device,
             AudioOutputMode::Memory => {
                 OutputMode::Memory(Arc::new(Mutex::new(RenderedPcm::default())))
             }
         };
-        Self::with_output_options(output, options, volume)
+        Self::with_output_options(output, options, volume, preferences)
     }
     fn with_output(output_mode: OutputMode) -> Self {
         Self::with_output_options(
             output_mode,
             TransportOptions::default(),
             PlaybackSnapshot::default().volume,
+            Default::default(),
         )
     }
     fn with_output_options(
         output_mode: OutputMode,
         options: TransportOptions,
         volume: f32,
+        preferences: crate::domain::audio_output::AudioPreferences,
     ) -> Self {
         let cache = Arc::new(Mutex::new(None));
         let engine_cache = cache.clone();
@@ -414,6 +426,8 @@ impl AudioPlayer {
         let snapshot = Arc::new(Mutex::new(initial_playback));
         let worker_snapshot = snapshot.clone();
         let mut initial_output = crate::domain::audio_output::AudioOutputSnapshot::default();
+        initial_output.preferences = preferences.clone();
+        initial_output.state.desired = preferences.selection.clone();
         if matches!(output_mode, OutputMode::Memory(_)) {
             initial_output.state.mode = crate::domain::audio_output::AudioOutputMode::Memory;
             initial_output.state.status =
@@ -429,7 +443,7 @@ impl AudioPlayer {
         let worker_output_render_timing = output_render_timing.clone();
         let supply = Arc::new(Mutex::new(None));
         let worker_supply = supply.clone();
-        let pending_preferences = Arc::new(Mutex::new(None));
+        let pending_preferences = Arc::new(Mutex::new(Some(preferences)));
         let worker_preferences = pending_preferences.clone();
         let refresh_devices = Arc::new(AtomicBool::new(false));
         let worker_refresh = refresh_devices.clone();
@@ -456,6 +470,7 @@ impl AudioPlayer {
             let thread = thread::Builder::new()
                 .name("lx-audio-engine".into())
                 .spawn(move || {
+                    let _latency = scheduling::LatencyScope::enter();
                     run_engine(
                         receiver,
                         worker_snapshot,
@@ -1681,7 +1696,11 @@ fn run_engine(
     };
     *shared_cache.lock().unwrap_or_else(|e| e.into_inner()) = Some(transport.cache().clone());
     let mut output: Option<EngineOutput> = None;
-    let mut output_preferences = crate::domain::audio_output::AudioPreferences::default();
+    let mut output_preferences = output_snapshot
+        .lock()
+        .unwrap_or_else(|error| error.into_inner())
+        .preferences
+        .clone();
     let mut equalizer_request = (EqualizerSettings::default(), 0);
     let mut processing_request = (PlaybackProcessingSettings::default(), 0);
     let mut retired_outputs: Vec<EngineOutput> = Vec::new();

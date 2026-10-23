@@ -1203,11 +1203,26 @@ fn appkit_capture_file_panel_compositor_png(
     if window_number <= 0 {
         return Err("the AppKit file panel has no compositor window number".to_string());
     }
+    // NSOpenPanel's contents are drawn by the remote ViewBridge service.
+    // Capturing only the host window omits those surfaces, producing a blank
+    // sheet even when the visible system picker is fully rendered.
+    let screen: Option<Retained<AnyObject>> =
+        unsafe { msg_send![objc2::class!(NSScreen), mainScreen] };
+    let screen = screen.ok_or_else(|| "No AppKit screen for panel capture".to_string())?;
+    let screen_frame: NSRect = unsafe { msg_send![&*screen, frame] };
+    let frame = panel.frame();
+    let bounds = NSRect::new(
+        NSPoint::new(
+            frame.origin.x,
+            screen_frame.size.height - frame.origin.y - frame.size.height,
+        ),
+        frame.size,
+    );
     #[allow(deprecated)]
     let image = CGWindowListCreateImage(
-        unsafe { CGRectNull },
-        CGWindowListOption::OptionIncludingWindow,
-        window_number as u32,
+        bounds,
+        CGWindowListOption::OptionOnScreenOnly,
+        0,
         CGWindowImageOption::BoundsIgnoreFraming | CGWindowImageOption::BestResolution,
     )
     .ok_or_else(|| "Core Graphics could not capture the AppKit file-panel window".to_string())?;

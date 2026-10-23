@@ -540,13 +540,14 @@ pub(super) fn start_with_guard(
             provider_registry.clone(),
             authority.clone(),
         )?;
-        let audio = AudioPlayer::with_transport_options_and_volume(
+        let audio = AudioPlayer::with_transport_options_and_preferences(
             match config.audio_mode {
                 BackendAudioMode::Device => AudioOutputMode::Device,
                 BackendAudioMode::Memory => AudioOutputMode::Memory,
             },
             transport_options,
             data.volume,
+            data.audio_preferences.clone(),
         );
         let lyric_service = LyricService::with_authority(repository.clone(), authority.clone());
         let initial_core = Runtime {

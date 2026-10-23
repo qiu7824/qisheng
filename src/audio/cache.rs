@@ -177,6 +177,7 @@ pub struct CacheClearTicket {
 }
 impl CacheClearTicket {
     pub fn wait(&self, timeout: Duration) -> Result<CacheStats> {
+        let _latency = super::scheduling::LatencyScope::enter();
         match self.receiver.recv_timeout(timeout) {
             Ok(Ok(stats)) => Ok(stats),
             Ok(Err(message)) => bail!(message),

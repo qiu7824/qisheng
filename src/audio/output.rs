@@ -2406,6 +2406,7 @@ impl Output {
         let renderer = thread::Builder::new()
             .name("lx-pcm-renderer".into())
             .spawn(move || {
+                let _latency = super::scheduling::LatencyScope::enter();
                 let mut samples = [0.0f32; MEMORY_BATCH_FRAMES];
                 let period = Duration::from_secs_f64(
                     MEMORY_BATCH_FRAMES as f64 / MEMORY_FORMAT.sample_rate as f64,
