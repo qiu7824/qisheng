@@ -113,21 +113,26 @@ fn prepare(
 }
 
 fn emit(context: &Context, event: Event, output: &mut Output) {
-    let mut full = event.need_rescan() || matches!(event.kind, EventKind::Any | EventKind::Other);
+    let mut full = event.need_rescan()
+        || (event.paths.is_empty() && matches!(event.kind, EventKind::Any | EventKind::Other));
     let is_directory = match event.kind {
         EventKind::Create(CreateKind::Folder) | EventKind::Remove(RemoveKind::Folder) => Some(true),
         EventKind::Create(CreateKind::File) | EventKind::Remove(RemoveKind::File) => Some(false),
         _ => None,
     };
-    full |= is_directory == Some(true);
     let mut hints = Vec::new();
     for (index, path) in event.paths.iter().enumerate() {
         let Ok(relative) = path.strip_prefix(&context.path) else {
-            full = true;
             continue;
         };
         if relative.as_os_str().is_empty() {
-            full = true;
+            // FSEvents may deliver the selected directory's creation/metadata
+            // event after subscription. Identity probes handle root movement;
+            // only structural root removal/rename requires another full scan.
+            full |= matches!(
+                event.kind,
+                EventKind::Remove(_) | EventKind::Modify(ModifyKind::Name(_))
+            );
             continue;
         }
         if !safe_relative(relative) {
@@ -137,6 +142,7 @@ fn emit(context: &Context, event: Event, output: &mut Output) {
         if !context.root.recursive && relative.components().count() != 1 {
             continue;
         }
+        full |= is_directory == Some(true);
         let kind = match event.kind {
             EventKind::Create(_) => NativeWatchKind::Created,
             EventKind::Remove(_) => NativeWatchKind::Removed,
@@ -151,7 +157,14 @@ fn emit(context: &Context, event: Event, output: &mut Output) {
             }
             EventKind::Modify(ModifyKind::Name(_)) => {
                 full = true;
-                NativeWatchKind::Modified
+                // FSEvents reports rename endpoints without a pairing cookie.
+                // These are scan hints only; admission still verifies the inode,
+                // root grant and content before updating a library binding.
+                if path.try_exists().unwrap_or(false) {
+                    NativeWatchKind::RenamedNew
+                } else {
+                    NativeWatchKind::RenamedOld
+                }
             }
             EventKind::Access(_) => continue,
             _ => NativeWatchKind::Modified,

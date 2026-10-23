@@ -1363,7 +1363,7 @@ impl Drop for HashLease<'_> {
 struct ContentStamp {
     size: u64,
     modified: std::time::SystemTime,
-    #[cfg(target_os = "linux")]
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
     changed: (i64, i64),
 }
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -1542,7 +1542,7 @@ impl ContentStamp {
         Self::from_metadata(&metadata)
     }
     fn from_metadata(metadata: &std::fs::Metadata) -> Result<Self> {
-        #[cfg(target_os = "linux")]
+        #[cfg(any(target_os = "linux", target_os = "macos"))]
         let changed = {
             use std::os::unix::fs::MetadataExt;
             (metadata.ctime(), metadata.ctime_nsec())
@@ -1550,7 +1550,7 @@ impl ContentStamp {
         Ok(Self {
             size: metadata.len(),
             modified: metadata.modified()?,
-            #[cfg(target_os = "linux")]
+            #[cfg(any(target_os = "linux", target_os = "macos"))]
             changed,
         })
     }

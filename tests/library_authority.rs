@@ -963,7 +963,6 @@ fn historical_content_admission_rejects_missing_hash_wrong_body_and_original_sam
     );
 }
 
-#[cfg(windows)]
 #[test]
 fn approved_hardlink_alias_reads_its_exact_namespace_even_when_primary_is_outside_root() {
     let temp = tempfile::tempdir_in(std::env::temp_dir()).unwrap();

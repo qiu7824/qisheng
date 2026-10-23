@@ -4405,6 +4405,49 @@ mod platform {
         );
         Ok(file)
     }
+    fn opened_locator(file: &File, parent: &File, path: &Path) -> Result<PathBuf> {
+        if link_count(file)? <= 1 {
+            return current_path(file);
+        }
+        // F_GETPATH can return a different hardlink on macOS. The authorized
+        // name is instead proved relative to the already pinned parent inode.
+        let expected_parent = path.parent().context("Library alias parent missing")?;
+        ensure!(
+            same_path(&current_path(parent)?, expected_parent),
+            "Library alias parent moved"
+        );
+        let name = CString::new(
+            path.file_name()
+                .context("Library alias name missing")?
+                .as_bytes(),
+        )?;
+        let mut status = std::mem::MaybeUninit::<libc::stat>::uninit();
+        if unsafe {
+            libc::fstatat(
+                parent.as_raw_fd(),
+                name.as_ptr(),
+                status.as_mut_ptr(),
+                libc::AT_SYMLINK_NOFOLLOW,
+            )
+        } != 0
+        {
+            return Err(io::Error::last_os_error())
+                .context("Library alias no longer names its inode");
+        }
+        let status = unsafe { status.assume_init() };
+        let metadata = file.metadata()?;
+        ensure!(
+            status.st_mode & libc::S_IFMT == libc::S_IFREG
+                && status.st_dev as u64 == metadata.dev()
+                && status.st_ino as u64 == metadata.ino(),
+            "Library alias changed inode or became a redirected object"
+        );
+        ensure!(
+            same_path(&current_path(parent)?, expected_parent),
+            "Library alias parent moved during verification"
+        );
+        Ok(path.to_owned())
+    }
     pub(super) fn validate_directory(file: &File) -> Result<()> {
         ensure!(
             file.metadata()?.is_dir(),
@@ -4433,7 +4476,7 @@ mod platform {
             path.file_name().context("Filename missing")?,
             false,
         )?;
-        let actual = current_path(&file)?;
+        let actual = opened_locator(&file, parent, path)?;
         ensure!(
             same_path(&actual, path),
             "Cached-parent namespace moved during opening"
@@ -4465,7 +4508,7 @@ mod platform {
                 components.peek().is_some(),
             )?;
             if components.peek().is_none() {
-                let actual = current_path(&file)?;
+                let actual = opened_locator(&file, handles.last().unwrap(), path)?;
                 ensure!(
                     same_path(&actual, path),
                     "Root-relative file moved during opening"
@@ -4557,7 +4600,7 @@ mod platform {
             target.file_name().context("Library filename missing")?,
             false,
         )?;
-        let actual = current_path(&file)?;
+        let actual = opened_locator(&file, handles.last().unwrap(), &target)?;
         ensure!(actual == target, "Library file changed while opening");
         let identity = identity(&file)?;
         Ok((file, actual, identity, handles))
