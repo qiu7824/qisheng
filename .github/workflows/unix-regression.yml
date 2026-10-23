@@ -58,6 +58,7 @@ jobs:
         run: |
           set -o pipefail
           cargo test --locked --lib audio::pcm::presentation_tests -- --test-threads=1 2>&1 | tee "$RUNNER_TEMP/evidence/pcm-publication.log"
+          cargo test --locked --lib backend::runtime::download_reads::shutdown::tests::shutdown_waits_for_real_read_thread_exit_and_keeps_the_cold_publication -- --test-threads=1 2>&1 | tee "$RUNNER_TEMP/evidence/read-lifecycle.log"
       - name: Native filesystem and playback regression
         if: ${{ !cancelled() && steps.worker.outcome == 'success' }}
         timeout-minutes: 25
