@@ -30,6 +30,7 @@ fn sample(name: &str, milliseconds: u64, wait: impl Fn(Duration)) {
 }
 
 fn main() {
+    println!("library_backtrace={:?}", std::env::var("RUST_LIB_BACKTRACE"));
     let mut timebase = Timebase { numer: 0, denom: 0 };
     assert_eq!(unsafe { mach_timebase_info(&mut timebase) }, 0);
     assert!(timebase.numer > 0 && timebase.denom > 0);
@@ -47,6 +48,9 @@ fn main() {
             timebase.numer, timebase.denom
         );
         sample("park", 2, std::thread::park_timeout);
+        sample("backtrace", 0, |_| {
+            std::hint::black_box(std::backtrace::Backtrace::capture());
+        });
         sample("sleep", 20, std::thread::sleep);
         sample("channel", 100, |duration| {
             let (_sender, receiver) = mpsc::channel::<()>();
