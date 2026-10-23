@@ -152,6 +152,7 @@ fn run() -> anyhow::Result<()> {
 
     #[cfg(feature = "smoke")]
     if args.raw.iter().any(|a| a == "--smoke") {
+        invalidate.request_app_command(zsui::Command::custom("smoke.ready"))?;
         let close_probe = if args.raw.iter().any(|a| a == "--smoke-close") {
             let wake = invalidate.clone();
             let observed = inbox.clone();
@@ -163,7 +164,6 @@ fn run() -> anyhow::Result<()> {
                 .map(PathBuf::from)
                 .ok_or_else(|| anyhow::anyhow!("Missing smoke screenshot path"))?;
             Some(std::thread::spawn(move || -> anyhow::Result<()> {
-                wake.request_app_command(zsui::Command::custom("smoke.ready"))?;
                 let startup = std::time::Instant::now() + Duration::from_secs(30);
                 while !observed.is_smoke_ready() {
                     anyhow::ensure!(
