@@ -10,6 +10,7 @@ import time
 targets = [
     'download_cleanup', 'backend_download_tasks', 'library_scan',
     'repository_library_roots', 'backend_playback_processing', 'audio_cache_latency',
+    'audio_player_long_stream',
     'backend_library_relink', 'backend_library_watch', 'library_relink_actor',
     'library_authority', 'library_watch_native',
 ]

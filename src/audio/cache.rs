@@ -177,8 +177,7 @@ pub struct CacheClearTicket {
 }
 impl CacheClearTicket {
     pub fn wait(&self, timeout: Duration) -> Result<CacheStats> {
-        let _latency = super::scheduling::LatencyScope::enter();
-        match self.receiver.recv_timeout(timeout) {
+        match super::scheduling::recv_timeout(&self.receiver, timeout) {
             Ok(Ok(stats)) => Ok(stats),
             Ok(Err(message)) => bail!(message),
             Err(mpsc::RecvTimeoutError::Timeout) => bail!("cache clear barrier timed out"),
@@ -238,7 +237,6 @@ impl CacheStore {
         stats
     }
     pub fn wait_ready(&self, timeout: Duration) -> Result<()> {
-        let _latency = super::scheduling::LatencyScope::enter();
         let deadline = Instant::now() + timeout;
         let mut state = self.core.state.lock().unwrap_or_else(|e| e.into_inner());
         if state.closing || self.core.access.closing.load(Ordering::Acquire) {
@@ -258,7 +256,7 @@ impl CacheStore {
             state = self
                 .core
                 .changed
-                .wait_timeout(state, remaining)
+                .wait_timeout(state, super::scheduling::timeout_slice(remaining))
                 .unwrap_or_else(|e| e.into_inner())
                 .0;
         }

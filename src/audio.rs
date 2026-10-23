@@ -470,7 +470,6 @@ impl AudioPlayer {
             let thread = thread::Builder::new()
                 .name("lx-audio-engine".into())
                 .spawn(move || {
-                    scheduling::configure_audio_thread();
                     run_engine(
                         receiver,
                         worker_snapshot,
@@ -1813,6 +1812,8 @@ fn run_engine(
         }
         let command = if let Some(command) = deferred.take() {
             Ok(command)
+        } else if desired_playing && active.is_some() {
+            scheduling::recv_timeout(&receiver, Duration::from_millis(10))
         } else {
             receiver.recv_timeout(Duration::from_millis(10))
         };

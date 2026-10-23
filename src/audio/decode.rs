@@ -204,7 +204,6 @@ impl DecoderHandle {
         let thread = thread::Builder::new()
             .name("audio-decode".into())
             .spawn(move || {
-                super::scheduling::configure_audio_thread();
                 let outcome = catch_unwind(AssertUnwindSafe(|| {
                     run_worker(
                         source,

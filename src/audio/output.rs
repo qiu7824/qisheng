@@ -2406,7 +2406,6 @@ impl Output {
         let renderer = thread::Builder::new()
             .name("lx-pcm-renderer".into())
             .spawn(move || {
-                super::scheduling::configure_audio_thread();
                 let mut samples = [0.0f32; MEMORY_BATCH_FRAMES];
                 let period = Duration::from_secs_f64(
                     MEMORY_BATCH_FRAMES as f64 / MEMORY_FORMAT.sample_rate as f64,
@@ -2456,7 +2455,15 @@ impl Output {
                         if remaining.is_zero() {
                             break;
                         }
-                        super::scheduling::wait_render_deadline(remaining);
+                        if !shared.paused.load(Ordering::Acquire)
+                            && kernel.state.as_ref().is_some_and(|state| {
+                                state.active.is_some() || state.pending.is_some()
+                            })
+                        {
+                            super::scheduling::wait_render_deadline(remaining);
+                        } else {
+                            thread::park_timeout(remaining);
+                        }
                     }
                 }
             })
