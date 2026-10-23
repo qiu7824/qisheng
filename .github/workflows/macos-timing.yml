@@ -1,0 +1,30 @@
+name: macOS native timer diagnostics
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  timing:
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        runner: [macos-15, macos-15-intel]
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Measure native waits
+        run: |
+          rustup toolchain install 1.99.0 --profile minimal
+          rustc +1.99.0 --edition 2024 -O .github/scripts/macos_timing_probe.rs -o "$RUNNER_TEMP/macos-timing-probe"
+          "$RUNNER_TEMP/macos-timing-probe" | tee "$RUNNER_TEMP/native-timers.log"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: Native-timers-${{ matrix.runner }}-${{ github.sha }}
+          path: ${{ runner.temp }}/native-timers.log
+          retention-days: 7
+          if-no-files-found: warn

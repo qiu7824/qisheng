@@ -998,10 +998,21 @@ fn approved_hardlink_alias_reads_its_exact_namespace_even_when_primary_is_outsid
         exact_reader.read(&mut [0]).is_err(),
         "A primary hardlink must not make an exact alias grant follow rename"
     );
+    #[cfg(windows)]
     assert!(
         opened.read(&mut [0]).is_err(),
         "Unknown outside primary must not become a root read locator after the approved alias disappears"
     );
+    #[cfg(unix)]
+    if opened.read(&mut [0]).is_ok() {
+        // Unix may retain the renamed alias as the descriptor's actual path.
+        // A root grant may follow that in-root name, never the outside alias.
+        assert_eq!(
+            opened.current_path().unwrap(),
+            lx_gpui_player::domain::music::normalize_local_path(&renamed)
+        );
+        assert!(authority.open_file(&primary).is_err());
+    }
 }
 
 #[cfg(windows)]
