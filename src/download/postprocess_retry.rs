@@ -595,17 +595,17 @@ impl RetryCoordinator {
             &|| self.cancel.check(),
         )
     }
-    fn selection(&self) -> TagWriteSelection {
-        TagWriteSelection {
+    fn selection(&self) -> Result<TagWriteSelection> {
+        Ok(TagWriteSelection {
             operation_id: self.intent.tag_operation_id(),
             asset_id: format!("download:{}", self.task.id),
             path: self.grant.path().join(&self.intent.original_audio.basename),
-            expected_identity: library_identity(&self.intent.original_audio.identity),
+            expected_identity: library_identity(&self.intent.original_audio.identity)?,
             root_id: None,
             grant_epoch: self.task.destination.grant_epoch,
             expected_binding_revision: self.intent.task_revision,
             expected_body_sha256: Some(self.intent.original_audio.sha256.clone()),
-        }
+        })
     }
     fn current(&self) -> Result<DownloadTask> {
         self.cancel.check()?;
@@ -647,25 +647,33 @@ impl RetryCoordinator {
         }
     }
 }
-fn library_identity(identity: &super::FileIdentity) -> crate::domain::library::FileIdentity {
-    crate::domain::library::FileIdentity {
-        kind: "windows_file_id".into(),
-        volume: format!("{:016x}", identity.device),
-        file_id: identity.object.clone(),
-    }
+fn library_identity(
+    identity: &super::FileIdentity,
+) -> Result<crate::domain::library::FileIdentity> {
+    crate::domain::library::FileIdentity::from_native_parts(identity.device, &identity.object)
 }
 fn download_identity(
     identity: &crate::domain::library::FileIdentity,
 ) -> Result<super::FileIdentity> {
-    ensure!(
-        identity.kind == "windows_file_id",
-        "Download retry requires actual Windows file identity"
-    );
+    let object = if cfg!(windows) {
+        ensure!(
+            identity.kind == "windows_file_id" && identity.file_id.len() == 32,
+            "Download retry requires its Windows file identity"
+        );
+        identity.file_id.clone()
+    } else {
+        ensure!(
+            identity.kind == "unix_inode" && identity.file_id.len() == 16,
+            "Download retry requires its Unix inode identity"
+        );
+        u64::from_str_radix(&identity.file_id, 16)?.to_string()
+    };
     Ok(super::FileIdentity {
         device: u64::from_str_radix(&identity.volume, 16)?,
-        object: identity.file_id.clone(),
+        object,
     })
 }
+
 fn role(role: TagInstallArtifactRole) -> RetryArtifactRole {
     match role {
         TagInstallArtifactRole::Journal => RetryArtifactRole::Journal,
@@ -687,7 +695,7 @@ impl TagInstallCoordinator for RetryCoordinator {
     }
     fn check_current_intent(&self, selection: &TagWriteSelection) -> Result<()> {
         self.current()?;
-        let expected = self.selection();
+        let expected = self.selection()?;
         ensure!(
             selection.operation_id == expected.operation_id
                 && selection.asset_id == expected.asset_id
@@ -877,7 +885,7 @@ impl TagInstallCoordinator for RetryCoordinator {
         receipt: Option<&TagInstallationReceipt>,
     ) -> Result<TagRecoveryDisposition> {
         self.grant.verify()?;
-        let expected = self.selection();
+        let expected = self.selection()?;
         ensure!(
             selection.operation_id == expected.operation_id
                 && selection.expected_identity == expected.expected_identity
@@ -922,7 +930,7 @@ impl TagInstallCoordinator for RetryCoordinator {
     }
     fn check_install_chunk(&mut self, restoring: bool, _: u64) -> Result<()> {
         if restoring {
-            let selection = self.selection();
+            let selection = self.selection()?;
             ensure!(
                 self.check_recovery(&selection, TagInstallPhase::Restoring, None)?
                     == TagRecoveryDisposition::RestoreOriginal,
@@ -1286,7 +1294,7 @@ pub(crate) fn execute_retry(
                 e.downcast_ref::<crate::library::tag_install::UnacknowledgedTagArtifact>()
             }) {
                 let role = role(unacknowledged.facts().role);
-                unacknowledged.acknowledge(&coordinator.selection(), &mut coordinator)?;
+                unacknowledged.acknowledge(&coordinator.selection()?, &mut coordinator)?;
                 previous.error.take();
                 let pending = repository
                     .download_task(&task.id)?
@@ -1360,7 +1368,7 @@ pub(crate) fn execute_retry(
                 .reservation(RetryArtifactRole::Journal)?
                 .removed
         {
-            let selection = coordinator.selection();
+            let selection = coordinator.selection()?;
             let token = owner
                 .as_ref()
                 .unwrap()
@@ -1386,7 +1394,7 @@ pub(crate) fn execute_retry(
             stages = current.stages.clone();
             restart_required = receipt.is_none();
         } else if preparation.ready.tags() {
-            let selection = coordinator.selection();
+            let selection = coordinator.selection()?;
             let token = owner
                 .as_ref()
                 .unwrap()

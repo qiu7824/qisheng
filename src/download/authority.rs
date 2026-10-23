@@ -2309,10 +2309,6 @@ impl DestinationGrant {
         proof: &super::task_model::DownloadArtifactProof,
         cancel: &DownloadCancel,
     ) -> Result<CleanupFinalGuard> {
-        ensure!(
-            cfg!(windows),
-            "UnsupportedCapability: cleanup final-file fencing is unavailable"
-        );
         proof.validate()?;
         cancel.check()?;
         self.verify()?;
