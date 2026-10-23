@@ -52,9 +52,8 @@ jobs:
       - name: Build native process worker
         run: cargo build --locked --profile test --bin lx-native-cli
       - name: Native filesystem and playback regression
-        run: |
-          set -o pipefail
-          cargo test --locked --no-fail-fast --test download_cleanup --test backend_download_tasks --test library_scan --test repository_library_roots --test backend_playback_processing --test audio_cache_latency --test backend_library_relink --test backend_library_watch --test library_relink_actor --test library_authority --test library_watch_native -- --test-threads=1 2>&1 | tee "$RUNNER_TEMP/evidence/tests.log"
+        timeout-minutes: 25
+        run: python3 .github/scripts/unix_regression.py
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
         with:
