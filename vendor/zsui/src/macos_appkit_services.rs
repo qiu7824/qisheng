@@ -9,15 +9,15 @@ use std::{
 use std::{ffi::c_void, ptr::NonNull};
 
 use block2::RcBlock;
-#[cfg(feature = "native-smoke")]
-use objc2::AnyThread;
-#[cfg(feature = "native-smoke")]
-use objc2::Message;
 use objc2::rc::Retained;
 #[cfg(feature = "native-smoke")]
 use objc2::runtime::AnyObject;
 use objc2::runtime::ProtocolObject;
-use objc2::{DefinedClass, MainThreadMarker, MainThreadOnly, define_class, msg_send};
+#[cfg(feature = "native-smoke")]
+use objc2::AnyThread;
+#[cfg(feature = "native-smoke")]
+use objc2::Message;
+use objc2::{define_class, msg_send, DefinedClass, MainThreadMarker, MainThreadOnly};
 use objc2_app_kit::{
     NSAlert, NSAlertFirstButtonReturn, NSAlertSecondButtonReturn, NSAlertStyle,
     NSAlertThirdButtonReturn, NSApplication, NSApplicationActivationPolicy, NSApplicationDelegate,
@@ -39,7 +39,7 @@ use objc2_foundation::{
 #[cfg(feature = "native-smoke")]
 use objc2_foundation::{NSDefaultRunLoopMode, NSDictionary, NSTimer};
 
-use crate::native_clipboard::{NativeClipboardTextWrite, native_clipboard_text_write};
+use crate::native_clipboard::{native_clipboard_text_write, NativeClipboardTextWrite};
 use crate::native_file_dialog::{
     native_file_dialog_extensions, native_file_dialog_initial_directory,
     native_save_dialog_suggested_name,
