@@ -470,7 +470,7 @@ impl AudioPlayer {
             let thread = thread::Builder::new()
                 .name("lx-audio-engine".into())
                 .spawn(move || {
-                    let _latency = scheduling::LatencyScope::enter();
+                    scheduling::configure_audio_thread();
                     run_engine(
                         receiver,
                         worker_snapshot,

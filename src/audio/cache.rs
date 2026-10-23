@@ -238,6 +238,7 @@ impl CacheStore {
         stats
     }
     pub fn wait_ready(&self, timeout: Duration) -> Result<()> {
+        let _latency = super::scheduling::LatencyScope::enter();
         let deadline = Instant::now() + timeout;
         let mut state = self.core.state.lock().unwrap_or_else(|e| e.into_inner());
         if state.closing || self.core.access.closing.load(Ordering::Acquire) {
